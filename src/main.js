@@ -1,1211 +1,569 @@
-// import * as THREE from "three";
-// import "./style.css";
-// import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-// /* -----------------------------
-//    BASIC CONFIG / STATE MACHINE
-// ------------------------------ */
-// const GameState = Object.freeze({
-//   Explore: "Explore",
-//   SeedPlanted: "SeedPlanted",
-//   Watering: "Watering",
-//   SunGrowth: "SunGrowth",
-//   Bloomed: "Bloomed",
-//   PuffReady: "PuffReady",
-//   Dispersing: "Dispersing",
-//   SeedSelected: "SeedSelected",
-//   SeedLanding: "SeedLanding",
-// });
-
-// let state = GameState.Explore;
-
-// /* -----------------------------
-//    SCENE / CAMERA / RENDERER
-// ------------------------------ */
-// const scene = new THREE.Scene();
-
-// // Subtle atmospheric depth
-// scene.fog = new THREE.Fog(0xcfe9ff, 25, 160);
-
-// const camera = new THREE.PerspectiveCamera(
-//   60,
-//   window.innerWidth / window.innerHeight,
-//   0.1,
-//   800
-// );
-// camera.position.set(10, 9, 14);
-
-// const renderer = new THREE.WebGLRenderer({ antialias: true });
-// renderer.setSize(window.innerWidth, window.innerHeight);
-// renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-// renderer.outputColorSpace = THREE.SRGBColorSpace;
-// renderer.toneMapping = THREE.ACESFilmicToneMapping;
-// renderer.toneMappingExposure = 1.05;
-
-// renderer.shadowMap.enabled = true;
-// renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-// document.body.appendChild(renderer.domElement);
-
-// /* -----------------------------
-//    CAMERA CONTROLS
-// ------------------------------ */
-// const controls = new OrbitControls(camera, renderer.domElement);
-// controls.target.set(0, 1.2, 0);
-// controls.enableDamping = true;
-// controls.dampingFactor = 0.08;
-// controls.minDistance = 4;
-// controls.maxDistance = 60;
-// controls.maxPolarAngle = Math.PI * 0.49;
-
-// /* -----------------------------
-//    SKY
-// ------------------------------ */
-// function makeSkyDome() {
-//   const geo = new THREE.SphereGeometry(400, 48, 24);
-//   const mat = new THREE.ShaderMaterial({
-//     side: THREE.BackSide,
-//     uniforms: {
-//       topColor: { value: new THREE.Color(0x66b7ff) },
-//       bottomColor: { value: new THREE.Color(0xeaf7ff) },
-//       offset: { value: 30.0 },
-//       exponent: { value: 0.7 },
-//     },
-//     vertexShader: `
-//       varying vec3 vWorldPosition;
-//       void main() {
-//         vec4 wp = modelMatrix * vec4(position, 1.0);
-//         vWorldPosition = wp.xyz;
-//         gl_Position = projectionMatrix * viewMatrix * wp;
-//       }
-//     `,
-//     fragmentShader: `
-//       uniform vec3 topColor;
-//       uniform vec3 bottomColor;
-//       uniform float offset;
-//       uniform float exponent;
-//       varying vec3 vWorldPosition;
-//       void main() {
-//         float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
-//         float t = pow(max(h, 0.0), exponent);
-//         gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
-//       }
-//     `,
-//   });
-//   const sky = new THREE.Mesh(geo, mat);
-//   sky.name = "sky";
-//   return sky;
-// }
-// scene.add(makeSkyDome());
-
-// /* -----------------------------
-//    LIGHTING
-// ------------------------------ */
-// const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-// scene.add(ambient);
-
-// const sunLight = new THREE.DirectionalLight(0xfff2d6, 1.2);
-// sunLight.position.set(30, 40, 15);
-// sunLight.castShadow = true;
-
-// sunLight.shadow.mapSize.width = 2048;
-// sunLight.shadow.mapSize.height = 2048;
-// sunLight.shadow.camera.near = 5;
-// sunLight.shadow.camera.far = 140;
-// sunLight.shadow.camera.left = -60;
-// sunLight.shadow.camera.right = 60;
-// sunLight.shadow.camera.top = 60;
-// sunLight.shadow.camera.bottom = -60;
-// sunLight.shadow.bias = -0.00025;
-
-// scene.add(sunLight);
-
-// const fillLight = new THREE.DirectionalLight(0xd6ecff, 0.25);
-// fillLight.position.set(-20, 25, -30);
-// scene.add(fillLight);
-
-// const sunGeo = new THREE.SphereGeometry(1.1, 32, 16);
-// const sunMat = new THREE.MeshStandardMaterial({
-//   color: 0xfff6a3,
-//   emissive: 0xffc85a,
-//   emissiveIntensity: 0.8,
-//   roughness: 0.7,
-// });
-// const sun = new THREE.Mesh(sunGeo, sunMat);
-// sun.position.set(-35, 35, -85);
-// sun.name = "sun";
-// scene.add(sun);
-
-// /* -----------------------------
-//    TERRAIN
-// ------------------------------ */
-// function hash2(x, z) {
-//   const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
-//   return s - Math.floor(s);
-// }
-
-// function terrainHeight(x, z) {
-//   const big =
-//     Math.sin(x * 0.03) * 2.2 +
-//     Math.cos(z * 0.028) * 1.8 +
-//     Math.sin((x + z) * 0.018) * 1.4;
-
-//   const mid =
-//     Math.sin(x * 0.12 + z * 0.06) * 0.5 +
-//     Math.cos(z * 0.11 - x * 0.04) * 0.45;
-
-//   const tiny = (hash2(x * 0.6, z * 0.6) - 0.5) * 0.15;
-
-//   return big * 0.25 + mid * 0.22 + tiny;
-// }
-
-// const groundGeo = new THREE.PlaneGeometry(220, 220, 220, 220);
-// groundGeo.rotateX(-Math.PI / 2);
-
-// const colors = [];
-// for (let i = 0; i < groundGeo.attributes.position.count; i++) {
-//   const x = groundGeo.attributes.position.getX(i);
-//   const z = groundGeo.attributes.position.getZ(i);
-
-//   const y = terrainHeight(x, z);
-//   groundGeo.attributes.position.setY(i, y);
-
-//   const n = hash2(x * 0.25, z * 0.25);
-//   const base = new THREE.Color(0x2f8f3f);
-//   const dark = new THREE.Color(0x246a2f);
-//   const light = new THREE.Color(0x49b65a);
-
-//   let c = base.clone().lerp(dark, n * 0.5);
-//   c = c.lerp(light, (1 - n) * 0.18);
-
-//   colors.push(c.r, c.g, c.b);
-// }
-// groundGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-// groundGeo.computeVertexNormals();
-
-// const groundMat = new THREE.MeshStandardMaterial({
-//   vertexColors: true,
-//   roughness: 0.95,
-//   metalness: 0.0,
-// });
-
-// const ground = new THREE.Mesh(groundGeo, groundMat);
-// ground.name = "ground";
-// ground.receiveShadow = true;
-// scene.add(ground);
-
-
-// /* -----------------------------
-//    MOUND (3D mound only — NO FLAT PATCH)
-// ------------------------------ */
-// function smoothstep(edge0, edge1, x) {
-//   const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
-//   return t * t * (3 - 2 * t);
-// }
-
-// function makeMound({
-//   center = new THREE.Vector3(0, 0, 0),
-//   radius = 3.2,
-//   height = 1.2,
-//   segments = 64,
-// } = {}) {
-//   // Create a 2D profile curve (r,y) and revolve around Y.
-//   // Wide base, smooth slope, rounded top.
-//   const pts = [];
-//   const steps = 36;
-
-//   for (let i = 0; i <= steps; i++) {
-//     const t = i / steps; // 0..1
-//     const r = radius * Math.pow(1.0 - t, 0.72); // base -> taper
-//     const y = height * Math.pow(t, 1.20);       // smooth rise
-//     pts.push(new THREE.Vector2(r, y));
-//   }
-//   pts.push(new THREE.Vector2(0.001, height)); // tiny cap
-
-//   const geo = new THREE.LatheGeometry(pts, segments);
-//   geo.computeVertexNormals();
-
-//   const mat = new THREE.MeshStandardMaterial({
-//     color: 0x6a4a3c,
-//     roughness: 0.98,
-//     metalness: 0.0,
-//   });
-
-//   const mound = new THREE.Mesh(geo, mat);
-//   mound.name = "mound";
-//   mound.castShadow = true;
-//   mound.receiveShadow = true;
-
-//   // Place the mound so its base sits on the terrain height at the center
-//   mound.position.set(center.x, center.y, center.z);
-
-//   // store radius for grass exclusion
-//   mound.userData.radius = radius;
-
-//   return mound;
-// }
-
-// const MOUND_POS = new THREE.Vector3(0, terrainHeight(0, 0), 0);
-
-// const mound = makeMound({
-//   center: MOUND_POS,
-//   radius: 3.2,
-//   height: 1.2,
-//   segments: 64,
-// });
-// scene.add(mound);
-
-
-// /* -----------------------------
-//    GRASS BLADES (InstancedMesh)
-// ------------------------------ */
-// function makeGrassMaterial() {
-//   const mat = new THREE.MeshStandardMaterial({
-//     color: 0x2e9b45,
-//     roughness: 1.0,
-//     metalness: 0.0,
-//     side: THREE.DoubleSide,
-//   });
-
-//   mat.onBeforeCompile = (shader) => {
-//     shader.uniforms.uTime = { value: 0.0 };
-
-//     shader.vertexShader = shader.vertexShader
-//       .replace(
-//         "#include <common>",
-//         `#include <common>
-//          uniform float uTime;`
-//       )
-//       .replace(
-//         "#include <begin_vertex>",
-//         `
-//         #include <begin_vertex>
-
-//         float bladeFactor = clamp(transformed.y, 0.0, 1.0);
-//         float w = sin(uTime * 1.6 + position.x * 7.1 + position.y * 3.7 + position.z * 5.9);
-
-//         transformed.x += w * 0.06 * bladeFactor;
-//         transformed.z += w * 0.04 * bladeFactor;
-//         `
-//       );
-
-//     mat.userData.shader = shader;
-//   };
-
-//   return mat;
-// }
-
-// function createGrassField({
-//   count = 35000,
-//   radius = 70,
-
-//   moundCenter = new THREE.Vector3(0, 0, 0),
-//   moundRadius = 3.2,      // should match mound.userData.radius
-//   noGrassPad = 0.6,       // extra buffer beyond mound radius (tune)
-//   thinOuter = 10.0,       // distance where density returns to 1
-//   minKeep = 0.12,         // density just outside exclusion zone
-// } = {}) {
-//   const bladeH = 0.9;
-//   const bladeW = 0.06;
-//   const bladeGeo = new THREE.PlaneGeometry(bladeW, bladeH, 1, 4);
-//   bladeGeo.translate(0, bladeH / 2, 0);
-
-//   const bladeMat = makeGrassMaterial();
-//   const inst = new THREE.InstancedMesh(bladeGeo, bladeMat, count);
-//   inst.name = "grass";
-//   inst.castShadow = true;
-//   inst.receiveShadow = true;
-
-//   const dummy = new THREE.Object3D();
-//   let kept = 0;
-
-//   const noGrassRadius = moundRadius + noGrassPad;
-
-//   for (let i = 0; i < count; i++) {
-//     const a = Math.random() * Math.PI * 2;
-//     const rr = Math.sqrt(Math.random()) * radius;
-//     const x = Math.cos(a) * rr;
-//     const z = Math.sin(a) * rr;
-
-//     const dx = x - moundCenter.x;
-//     const dz = z - moundCenter.z;
-//     const d = Math.sqrt(dx * dx + dz * dz);
-
-//     // HARD “no grass” zone
-//     if (d < noGrassRadius) continue;
-
-//     // Soft ramp back to full density
-//     const t = smoothstep(noGrassRadius, thinOuter, d);
-//     const keepProb = THREE.MathUtils.lerp(minKeep, 1.0, t);
-//     if (Math.random() > keepProb) continue;
-
-//     const y = terrainHeight(x, z);
-
-//     const yaw = Math.random() * Math.PI * 2;
-//     const tilt = (Math.random() - 0.5) * 0.15;
-//     const s = 0.6 + Math.random() * 0.65;
-
-//     dummy.position.set(x, y, z);
-//     dummy.rotation.set(tilt, yaw, 0);
-//     dummy.scale.setScalar(s);
-//     dummy.updateMatrix();
-
-//     inst.setMatrixAt(kept, dummy.matrix);
-//     kept++;
-//   }
-
-//   inst.count = kept; // IMPORTANT: only draw what we placed
-//   inst.instanceMatrix.needsUpdate = true;
-
-//   scene.add(inst);
-//   return inst;
-// }
-
-
-// const grass = createGrassField({
-//   count: 35000,
-//   radius: 70,
-//   moundCenter: MOUND_POS,
-//   moundRadius: mound.userData.radius,
-//   noGrassPad: 0.6,
-//   thinOuter: 7.0,
-//   minKeep: 0.10,
-// });
-
-// /* -----------------------------
-//    CLOUDS
-// ------------------------------ */
-// function makeCloud() {
-//   const group = new THREE.Group();
-//   const puffMat = new THREE.MeshStandardMaterial({
-//     color: 0xffffff,
-//     roughness: 1.0,
-//     metalness: 0.0,
-//   });
-
-//   const puffs = [
-//     { r: 1.2, x: 0.0, y: 0.0, z: 0.0 },
-//     { r: 1.0, x: 1.2, y: 0.2, z: 0.0 },
-//     { r: 1.0, x: -1.2, y: 0.2, z: 0.0 },
-//     { r: 0.95, x: 0.2, y: 0.45, z: 0.9 },
-//     { r: 0.95, x: -0.2, y: 0.45, z: -0.9 },
-//   ];
-
-//   for (const p of puffs) {
-//     const g = new THREE.SphereGeometry(p.r, 18, 14);
-//     const m = new THREE.Mesh(g, puffMat);
-//     m.position.set(p.x, p.y, p.z);
-//     m.castShadow = true;
-//     group.add(m);
-//   }
-
-//   group.name = "cloud";
-//   return group;
-// }
-
-// const clouds = [];
-// for (let i = 0; i < 3; i++) {
-//   const c = makeCloud();
-//   c.position.set(12 + i * 10, 18 + (i % 2) * 1.0, -40 + i * 5);
-//   scene.add(c);
-//   clouds.push(c);
-// }
-
-// /* -----------------------------
-//    RAYCASTING + INPUT
-// ------------------------------ */
-// const raycaster = new THREE.Raycaster();
-// const mouseNDC = new THREE.Vector2();
-// let isMouseDown = false;
-
-// let draggedCloud = null;
-// const CLOUD_Y = 18.0;
-// const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CLOUD_Y);
-
-// function setMouseFromEvent(e) {
-//   const rect = renderer.domElement.getBoundingClientRect();
-//   const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-//   const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-//   mouseNDC.set(x, y);
-// }
-
-// function intersectObjects(objList) {
-//   raycaster.setFromCamera(mouseNDC, camera);
-//   return raycaster.intersectObjects(objList, true);
-// }
-
-// function getRootNamed(obj, name) {
-//   let cur = obj;
-//   while (cur) {
-//     if (cur.name === name) return cur;
-//     cur = cur.parent;
-//   }
-//   return null;
-// }
-
-// let plantedSeed = null;
-
-// function plantSeedAt(point) {
-//   if (plantedSeed) {
-//     scene.remove(plantedSeed);
-//     plantedSeed = null;
-//   }
-
-//   const seedGeo = new THREE.SphereGeometry(0.14, 18, 14);
-//   const seedMat = new THREE.MeshStandardMaterial({
-//     color: 0x5d4037,
-//     roughness: 1.0,
-//   });
-
-//   plantedSeed = new THREE.Mesh(seedGeo, seedMat);
-//   const y = terrainHeight(point.x, point.z);
-//   plantedSeed.position.set(point.x, y + 0.18, point.z);
-//   plantedSeed.castShadow = true;
-//   plantedSeed.name = "seed";
-//   scene.add(plantedSeed);
-
-//   state = GameState.SeedPlanted;
-//   console.log("State:", state);
-// }
-
-// window.addEventListener("pointerdown", (e) => {
-//   isMouseDown = true;
-//   setMouseFromEvent(e);
-
-//   // Cloud drag
-//   const cloudHits = intersectObjects(clouds);
-//   if (cloudHits.length > 0) {
-//     const rootCloud = getRootNamed(cloudHits[0].object, "cloud");
-//     if (rootCloud) {
-//       draggedCloud = rootCloud;
-//       return;
-//     }
-//   }
-
-//   // Mound click -> plant
-//   const moundHits = intersectObjects([mound]);
-//   if (moundHits.length > 0 && state === GameState.Explore) {
-//     plantSeedAt(moundHits[0].point);
-//     return;
-//   }
-
-//   // Sun click
-//   const sunHits = intersectObjects([sun]);
-//   if (sunHits.length > 0) {
-//     console.log("Clicked sun");
-//     return;
-//   }
-// });
-
-// window.addEventListener("pointermove", (e) => {
-//   setMouseFromEvent(e);
-
-//   if (isMouseDown && draggedCloud) {
-//     raycaster.setFromCamera(mouseNDC, camera);
-//     const hitPoint = new THREE.Vector3();
-//     raycaster.ray.intersectPlane(dragPlane, hitPoint);
-//     draggedCloud.position.x = hitPoint.x;
-//     draggedCloud.position.z = hitPoint.z;
-//   }
-// });
-
-// window.addEventListener("pointerup", () => {
-//   isMouseDown = false;
-//   draggedCloud = null;
-// });
-
-// /* -----------------------------
-//    RESIZE
-// ------------------------------ */
-// window.addEventListener("resize", () => {
-//   camera.aspect = window.innerWidth / window.innerHeight;
-//   camera.updateProjectionMatrix();
-//   renderer.setSize(window.innerWidth, window.innerHeight);
-// });
-
-// /* -----------------------------
-//    ANIMATION LOOP
-// ------------------------------ */
-// const clock = new THREE.Clock();
-
-// function animate() {
-//   requestAnimationFrame(animate);
-
-//   const t = clock.getElapsedTime();
-
-//   if (grass.material.userData.shader) {
-//     grass.material.userData.shader.uniforms.uTime.value = t;
-//   }
-
-//   for (let i = 0; i < clouds.length; i++) {
-//     if (clouds[i] === draggedCloud) continue;
-//     clouds[i].position.x += Math.sin(t * 0.12 + i * 1.7) * 0.01;
-//     clouds[i].position.z += Math.cos(t * 0.10 + i * 1.3) * 0.01;
-//   }
-
-//   controls.update();
-//   renderer.render(scene, camera);
-// }
-
-// animate();
-
-
-import * as THREE from "three";
 import "./style.css";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as THREE from "three";
 
 /* -----------------------------
-   BASIC CONFIG / STATE MACHINE
+   DOM
 ------------------------------ */
-const GameState = Object.freeze({
-  Explore: "Explore",
-  SeedPlanted: "SeedPlanted",
-  Watering: "Watering",
-  SunGrowth: "SunGrowth",
-  Bloomed: "Bloomed",
-  PuffReady: "PuffReady",
-  Dispersing: "Dispersing",
-  SeedSelected: "SeedSelected",
-  SeedLanding: "SeedLanding",
-});
-
-let state = GameState.Explore;
-
-/* -----------------------------
-   SCENE / CAMERA / RENDERER
------------------------------- */
-const scene = new THREE.Scene();
-
-// Subtle atmospheric depth
-scene.fog = new THREE.Fog(0xcfe9ff, 18, 95);
-
-const camera = new THREE.PerspectiveCamera(
-  50,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  500
+const canvas = /** @type {HTMLCanvasElement|null} */ (
+  document.getElementById("three-canvas")
+);
+const statusEl = /** @type {HTMLElement|null} */ (document.getElementById("status"));
+const rainButton = /** @type {HTMLButtonElement|null} */ (
+  document.getElementById("rain-button")
 );
 
-// "Hero shot" 3/4 overhead framing
-const CAM_HOME = {
-  pos: new THREE.Vector3(14, 16, 18),
-  target: new THREE.Vector3(0, 1.1, 0),
-};
-camera.position.copy(CAM_HOME.pos);
+if (!canvas) throw new Error("Missing <canvas id='three-canvas'>");
+if (!statusEl) throw new Error("Missing #status element");
+if (!rainButton) throw new Error("Missing #rain-button element");
 
-const renderer = new THREE.WebGLRenderer({
-  antialias: true,
-  powerPreference: "high-performance",
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
+/* -----------------------------
+   RENDERER / SCENE / CAMERA
+------------------------------ */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
-
-// Shadows
+renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#b9d2df");
+scene.fog = new THREE.Fog("#b9d2df", 20, 90);
 
-/* -----------------------------
-   CAMERA CONTROLS (constrained diorama)
------------------------------- */
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.copy(CAM_HOME.target);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+const camera = new THREE.PerspectiveCamera(
+  45,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  300
+);
+camera.position.set(10, 7.5, 12);
 
-// Keep it "still-frame" but interactive
-controls.enablePan = false;
-controls.minDistance = 14;
-controls.maxDistance = 28;
-controls.minPolarAngle = THREE.MathUtils.degToRad(22);
-controls.maxPolarAngle = THREE.MathUtils.degToRad(55);
-controls.minAzimuthAngle = THREE.MathUtils.degToRad(-40);
-controls.maxAzimuthAngle = THREE.MathUtils.degToRad(40);
-
-/* -----------------------------
-   SKY
------------------------------- */
-function makeSkyDome() {
-  const geo = new THREE.SphereGeometry(300, 48, 24);
-  const mat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    uniforms: {
-      topColor: { value: new THREE.Color(0x66b7ff) },
-      bottomColor: { value: new THREE.Color(0xeaf7ff) },
-      offset: { value: 22.0 },
-      exponent: { value: 0.7 },
-    },
-    vertexShader: `
-      varying vec3 vWorldPosition;
-      void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 topColor;
-      uniform vec3 bottomColor;
-      uniform float offset;
-      uniform float exponent;
-      varying vec3 vWorldPosition;
-      void main() {
-        float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
-        float t = pow(max(h, 0.0), exponent);
-        gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
-      }
-    `,
-  });
-  const sky = new THREE.Mesh(geo, mat);
-  sky.name = "sky";
-  return sky;
-}
-scene.add(makeSkyDome());
+const clock = new THREE.Clock();
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
 
 /* -----------------------------
    LIGHTING
 ------------------------------ */
-const ambient = new THREE.AmbientLight(0xffffff, 0.22);
-scene.add(ambient);
+const hemi = new THREE.HemisphereLight("#dff6ff", "#5f7f55", 0.6);
+scene.add(hemi);
 
-// "Sun" directional
-const sunLight = new THREE.DirectionalLight(0xfff2d6, 1.25);
-sunLight.position.set(35, 45, 15);
+const sunLight = new THREE.DirectionalLight("#fff4d6", 1.7);
+sunLight.position.set(10, 18, 6);
 sunLight.castShadow = true;
-
-// Higher quality shadows in hero shot area
-sunLight.shadow.mapSize.width = 4096;
-sunLight.shadow.mapSize.height = 4096;
-sunLight.shadow.camera.near = 5;
-sunLight.shadow.camera.far = 120;
-
-// Tight shadow frustum around the diorama
-sunLight.shadow.camera.left = -22;
-sunLight.shadow.camera.right = 22;
-sunLight.shadow.camera.top = 22;
-sunLight.shadow.camera.bottom = -22;
-
-sunLight.shadow.bias = -0.00018;
-sunLight.shadow.normalBias = 0.02;
+sunLight.shadow.mapSize.set(2048, 2048);
+sunLight.shadow.camera.left = -25;
+sunLight.shadow.camera.right = 25;
+sunLight.shadow.camera.top = 25;
+sunLight.shadow.camera.bottom = -25;
 scene.add(sunLight);
 
-// Cool fill
-const fillLight = new THREE.DirectionalLight(0xd6ecff, 0.28);
-fillLight.position.set(-20, 20, -25);
-scene.add(fillLight);
-
-// Visible sun sphere (click target)
-const sunGeo = new THREE.SphereGeometry(1.2, 32, 16);
-const sunMat = new THREE.MeshStandardMaterial({
-  color: 0xfff6a3,
-  emissive: 0xffc85a,
-  emissiveIntensity: 0.85,
-  roughness: 0.65,
-  metalness: 0.0,
-});
-const sun = new THREE.Mesh(sunGeo, sunMat);
-sun.position.set(-22, 22, -55);
-sun.name = "sun";
-sun.castShadow = false;
-scene.add(sun);
-
 /* -----------------------------
-   TERRAIN
+   GROUND / MOUNDS
 ------------------------------ */
-function hash2(x, z) {
-  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
-  return s - Math.floor(s);
-}
-
-function terrainHeight(x, z) {
-  const big =
-    Math.sin(x * 0.03) * 2.2 +
-    Math.cos(z * 0.028) * 1.8 +
-    Math.sin((x + z) * 0.018) * 1.4;
-
-  const mid =
-    Math.sin(x * 0.12 + z * 0.06) * 0.5 +
-    Math.cos(z * 0.11 - x * 0.04) * 0.45;
-
-  const tiny = (hash2(x * 0.6, z * 0.6) - 0.5) * 0.15;
-
-  return big * 0.25 + mid * 0.22 + tiny;
-}
-
-// Smaller, denser hero patch + cheaper far terrain illusion
-const groundGeo = new THREE.PlaneGeometry(120, 120, 260, 260);
-groundGeo.rotateX(-Math.PI / 2);
-
-const colors = [];
-for (let i = 0; i < groundGeo.attributes.position.count; i++) {
-  const x = groundGeo.attributes.position.getX(i);
-  const z = groundGeo.attributes.position.getZ(i);
-
-  // Fade height detail with distance (keeps center crisp, edges calmer)
-  const d = Math.sqrt(x * x + z * z);
-  const fade = 1.0 - THREE.MathUtils.clamp((d - 22) / 42, 0, 1);
-
-  const y = terrainHeight(x, z) * (0.55 + 0.45 * fade);
-  groundGeo.attributes.position.setY(i, y);
-
-  // Color variation with distance-based desaturation
-  const n = hash2(x * 0.25, z * 0.25);
-  const base = new THREE.Color(0x2f8f3f);
-  const dark = new THREE.Color(0x246a2f);
-  const light = new THREE.Color(0x49b65a);
-
-  let c = base.clone().lerp(dark, n * 0.55);
-  c = c.lerp(light, (1 - n) * 0.18);
-
-  // Slightly cooler/less saturated at the edges (fog-friendly)
-  const edgeCool = THREE.MathUtils.clamp((d - 30) / 40, 0, 1);
-  c.lerp(new THREE.Color(0x2b7a3a), edgeCool * 0.35);
-
-  colors.push(c.r, c.g, c.b);
-}
-groundGeo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-groundGeo.computeVertexNormals();
-
-const groundMat = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.98,
-  metalness: 0.0,
-});
-
-const ground = new THREE.Mesh(groundGeo, groundMat);
-ground.name = "ground";
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(38, 96),
+  new THREE.MeshStandardMaterial({
+    color: "#668951",
+    roughness: 0.95,
+    metalness: 0,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-/* -----------------------------
-   MOUND (3D mound only)
------------------------------- */
-function smoothstep(edge0, edge1, x) {
-  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
-}
+const soilMat = new THREE.MeshStandardMaterial({
+  color: "#795641",
+  roughness: 0.95,
+});
+const moundGeo = new THREE.CylinderGeometry(0.6, 1.9, 0.9, 24);
 
-// Small deterministic noise to make the mound less "perfect"
-// (no external libs)
-function noise2(x, z) {
-  return hash2(x, z) * 2 - 1;
-}
+/** @type {THREE.Mesh[]} */
+const mounds = [];
 
-function makeMound({
-  center = new THREE.Vector3(0, 0, 0),
-  radius = 3.2,
-  height = 1.2,
-  segments = 72,
-} = {}) {
-  const pts = [];
-  const steps = 40;
-
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps; // 0..1
-    const r = radius * Math.pow(1.0 - t, 0.70);
-    const y = height * Math.pow(t, 1.18);
-    pts.push(new THREE.Vector2(r, y));
-  }
-  pts.push(new THREE.Vector2(0.001, height));
-
-  const geo = new THREE.LatheGeometry(pts, segments);
-
-  // Add subtle lumpy displacement to vertices (artistically reads as soil)
-  const pos = geo.attributes.position;
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-
-    // stronger noise near the base, softer near the peak
-    const t = THREE.MathUtils.clamp(v.y / height, 0, 1);
-    const amp = (1.0 - t) * 0.10 + 0.02;
-
-    // Use vertex position for pseudo-noise
-    const n =
-      0.6 * noise2(v.x * 1.7, v.z * 1.7) +
-      0.4 * noise2(v.x * 4.1, v.z * 4.1);
-
-    // Push outward along radial direction (keeps mound silhouette)
-    const radial = new THREE.Vector2(v.x, v.z);
-    const len = radial.length();
-    if (len > 1e-4) {
-      radial.normalize();
-      v.x += radial.x * n * amp;
-      v.z += radial.y * n * amp;
-    }
-
-    // Tiny vertical jitter
-    v.y += n * amp * 0.15;
-
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  geo.computeVertexNormals();
-
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x6a4a3c,
-    roughness: 0.98,
-    metalness: 0.0,
-  });
-
-  const mound = new THREE.Mesh(geo, mat);
-  mound.name = "mound";
+function addMound(pos) {
+  const mound = new THREE.Mesh(moundGeo, soilMat.clone());
+  mound.position.copy(pos);
   mound.castShadow = true;
   mound.receiveShadow = true;
-
-  mound.position.set(center.x, center.y, center.z);
-  mound.userData.radius = radius;
-
+  mound.userData.type = "mound";
+  scene.add(mound);
+  mounds.push(mound);
   return mound;
 }
 
-const MOUND_POS = new THREE.Vector3(0, terrainHeight(0, 0), 0);
+let activeMound = addMound(new THREE.Vector3(0, 0.45, 0));
 
-const mound = makeMound({
-  center: MOUND_POS,
-  radius: 3.2,
-  height: 1.25,
-  segments: 72,
-});
-scene.add(mound);
+const windDirection = new THREE.Vector3(1, 0, 0.5).normalize();
 
 /* -----------------------------
-   GRASS BLADES (InstancedMesh)
+   GRASS
 ------------------------------ */
-function makeGrassMaterial() {
+function addGrass() {
+  const count = 14000;
+  const blade = new THREE.PlaneGeometry(0.12, 1.1, 1, 4);
+  blade.translate(0, 0.55, 0);
+
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x2e9b45,
-    roughness: 1.0,
-    metalness: 0.0,
+    color: "#7bb05a",
     side: THREE.DoubleSide,
+    roughness: 0.9,
   });
 
-  // Sway + subtle per-vertex hue variation
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0.0 };
-
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-         uniform float uTime;`
-      )
-      .replace(
-        "#include <begin_vertex>",
-        `
-        #include <begin_vertex>
-        float bladeFactor = clamp(transformed.y, 0.0, 1.0);
-
-        float w = sin(uTime * 1.55 + position.x * 7.1 + position.y * 3.7 + position.z * 5.9);
-
-        transformed.x += w * 0.055 * bladeFactor;
-        transformed.z += w * 0.038 * bladeFactor;
-        `
-      );
-
+    shader.uniforms.time = { value: 0 };
+    shader.vertexShader = `uniform float time;\n${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      float sway = sin(time * 1.7 + instanceMatrix[3][0] * 0.6 + instanceMatrix[3][2] * 0.4) * 0.12;
+      transformed.x += sway * uv.y;
+      transformed.z += sway * 0.25 * uv.y;`
+    );
+    // stash shader so we can update uniform later
     mat.userData.shader = shader;
   };
 
-  return mat;
-}
-
-function createGrassField({
-  count = 26000,
-  radius = 55,
-
-  moundCenter = new THREE.Vector3(0, 0, 0),
-  moundRadius = 3.2,
-  noGrassPad = 0.8,
-  thinOuter = 10.0,
-  minKeep = 0.12,
-} = {}) {
-  const bladeH = 0.9;
-  const bladeW = 0.06;
-
-  // Slightly more segments -> nicer bend silhouette
-  const bladeGeo = new THREE.PlaneGeometry(bladeW, bladeH, 1, 6);
-  bladeGeo.translate(0, bladeH / 2, 0);
-
-  const bladeMat = makeGrassMaterial();
-  const inst = new THREE.InstancedMesh(bladeGeo, bladeMat, count);
-  inst.name = "grass";
-  inst.castShadow = true;
-  inst.receiveShadow = true;
+  const grass = new THREE.InstancedMesh(blade, mat, count);
+  grass.castShadow = true;
+  grass.receiveShadow = true;
 
   const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-  let kept = 0;
-
-  const noGrassRadius = moundRadius + noGrassPad;
-
-  // Per-instance color variation (works only if we enable instanceColor)
-  inst.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-
   for (let i = 0; i < count; i++) {
+    const r = Math.sqrt(Math.random()) * 35;
     const a = Math.random() * Math.PI * 2;
-    const rr = Math.sqrt(Math.random()) * radius;
-    const x = Math.cos(a) * rr;
-    const z = Math.sin(a) * rr;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
 
-    const dx = x - moundCenter.x;
-    const dz = z - moundCenter.z;
-    const d = Math.sqrt(dx * dx + dz * dz);
+    const exclusion = activeMound.position.distanceTo(
+      new THREE.Vector3(x, activeMound.position.y, z)
+    );
 
-    // HARD “no grass” zone
-    if (d < noGrassRadius) continue;
+    if (exclusion < 2.6) {
+      dummy.position.set(999, -999, 999); // effectively hidden
+    } else {
+      dummy.position.set(x, 0, z);
+    }
 
-    // Soft ramp back to full density
-    const t = smoothstep(noGrassRadius, thinOuter, d);
-    const keepProb = THREE.MathUtils.lerp(minKeep, 1.0, t);
-    if (Math.random() > keepProb) continue;
-
-    const y = terrainHeight(x, z);
-
-    const yaw = Math.random() * Math.PI * 2;
-    const tilt = (Math.random() - 0.5) * 0.18;
-    const s = 0.55 + Math.random() * 0.75;
-
-    dummy.position.set(x, y, z);
-    dummy.rotation.set(tilt, yaw, 0);
-
-    // Slight random lean to avoid "cardboard field" look
-    dummy.rotation.z = (Math.random() - 0.5) * 0.25;
-
-    dummy.scale.set(1, s, 1);
+    dummy.rotation.y = Math.random() * Math.PI;
+    const s = 0.65 + Math.random() * 0.8;
+    dummy.scale.setScalar(s);
     dummy.updateMatrix();
-
-    inst.setMatrixAt(kept, dummy.matrix);
-
-    // Color tint per instance
-    const hueJ = (Math.random() - 0.5) * 0.06;
-    const satJ = (Math.random() - 0.5) * 0.12;
-    const litJ = (Math.random() - 0.5) * 0.08;
-
-    color.set(0x2e9b45);
-    color.offsetHSL(hueJ, satJ, litJ);
-    inst.instanceColor.setXYZ(kept, color.r, color.g, color.b);
-
-    kept++;
+    grass.setMatrixAt(i, dummy.matrix);
   }
 
-  inst.count = kept;
-  inst.instanceMatrix.needsUpdate = true;
-  inst.instanceColor.needsUpdate = true;
-
-  scene.add(inst);
-  return inst;
+  scene.add(grass);
+  return grass;
 }
 
-const grass = createGrassField({
-  count: 26000,
-  radius: 55,
-  moundCenter: MOUND_POS,
-  moundRadius: mound.userData.radius,
-  noGrassPad: 0.8,
-  thinOuter: 12.0,
-  minKeep: 0.10,
-});
+const grass = addGrass();
 
 /* -----------------------------
-   CLOUDS
+   CLOUDS (SPRITES)
 ------------------------------ */
-function makeCloud() {
-  const group = new THREE.Group();
-  const puffMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 1.0,
-    metalness: 0.0,
-  });
+const cloudMat = new THREE.SpriteMaterial({
+  color: "#f2f6fb",
+  opacity: 0.92,
+  transparent: true,
+});
 
-  const puffs = [
-    { r: 1.35, x: 0.0, y: 0.0, z: 0.0 },
-    { r: 1.15, x: 1.35, y: 0.25, z: 0.1 },
-    { r: 1.15, x: -1.35, y: 0.25, z: -0.1 },
-    { r: 1.05, x: 0.25, y: 0.55, z: 1.0 },
-    { r: 1.05, x: -0.25, y: 0.55, z: -1.0 },
-  ];
+const cloudLeft = new THREE.Sprite(cloudMat.clone());
+cloudLeft.scale.set(5.4, 2.8, 1);
+cloudLeft.position.set(-5.8, 8.5, 0);
+cloudLeft.userData.type = "cloud";
 
-  for (const p of puffs) {
-    const g = new THREE.SphereGeometry(p.r, 20, 16);
-    const m = new THREE.Mesh(g, puffMat);
-    m.position.set(p.x, p.y, p.z);
-    m.castShadow = true;
-    group.add(m);
-  }
+const cloudRight = new THREE.Sprite(cloudMat.clone());
+cloudRight.scale.set(5.4, 2.8, 1);
+cloudRight.position.set(5.8, 8.5, 0.8);
+cloudRight.userData.type = "cloud";
 
-  group.name = "cloud";
-  return group;
+scene.add(cloudLeft, cloudRight);
+
+/* -----------------------------
+   SUN
+------------------------------ */
+const sun = new THREE.Mesh(
+  new THREE.SphereGeometry(0.9, 24, 24),
+  new THREE.MeshStandardMaterial({
+    color: "#ffe18a",
+    emissive: "#f7c84f",
+    emissiveIntensity: 1.6,
+  })
+);
+sun.position.set(-10, 11, -10);
+sun.userData.type = "sun";
+scene.add(sun);
+
+/* -----------------------------
+   RAIN (POINTS)
+------------------------------ */
+const rainCount = 1700;
+const rainPos = new Float32Array(rainCount * 3);
+const rainVel = new Float32Array(rainCount);
+
+for (let i = 0; i < rainCount; i++) {
+  rainPos[i * 3] = (Math.random() - 0.5) * 4;
+  rainPos[i * 3 + 1] = 4 + Math.random() * 7;
+  rainPos[i * 3 + 2] = (Math.random() - 0.5) * 4;
+  rainVel[i] = 6 + Math.random() * 8;
 }
 
-const clouds = [];
-for (let i = 0; i < 3; i++) {
-  const c = makeCloud();
-  // place them to be visible in the constrained hero framing
-  c.position.set(10 + i * 7.5, 18.5 + (i % 2) * 0.9, -26 - i * 2.5);
-  scene.add(c);
-  clouds.push(c);
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
+
+const rainMat = new THREE.PointsMaterial({
+  color: "#bddfff",
+  size: 0.08,
+  transparent: true,
+  opacity: 0,
+});
+const rain = new THREE.Points(rainGeo, rainMat);
+scene.add(rain);
+
+/* -----------------------------
+   PLANT (STEM/BUD/PUFF)
+------------------------------ */
+const stem = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.07, 0.1, 1.2, 16),
+  new THREE.MeshStandardMaterial({ color: "#6ea557" })
+);
+stem.position.y = 1.05;
+stem.castShadow = true;
+
+const bud = new THREE.Mesh(
+  new THREE.SphereGeometry(0.22, 16, 16),
+  new THREE.MeshStandardMaterial({ color: "#d6c555", roughness: 0.7 })
+);
+bud.position.y = 1.8;
+bud.castShadow = true;
+
+const puff = new THREE.Group();
+for (let i = 0; i < 80; i++) {
+  const p = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 8, 8),
+    new THREE.MeshStandardMaterial({
+      color: "#f6f8ff",
+      emissive: "#ffffff",
+      emissiveIntensity: 0.1,
+    })
+  );
+
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const rad = 0.28 + Math.random() * 0.16;
+
+  p.position.set(
+    Math.sin(phi) * Math.cos(theta) * rad,
+    Math.cos(phi) * rad,
+    Math.sin(phi) * Math.sin(theta) * rad
+  );
+  puff.add(p);
+}
+puff.position.y = 1.9;
+puff.visible = false;
+
+const plant = new THREE.Group();
+plant.add(stem, bud, puff);
+plant.position.copy(activeMound.position);
+plant.visible = false;
+scene.add(plant);
+
+/* -----------------------------
+   SEEDS
+------------------------------ */
+/** @type {{mesh:THREE.Mesh, velocity:THREE.Vector3, active:boolean, landed:boolean}[]} */
+const seeds = [];
+
+const tmpV3 = new THREE.Vector3();
+/** @type {THREE.Object3D|null} */
+let dragging = null;
+
+let growth = 0;
+let rainActive = false;
+let wetness = 0;
+/** @type {{mesh:THREE.Mesh, velocity:THREE.Vector3, active:boolean, landed:boolean} | null} */
+let followedSeed = null;
+
+const state = {
+  planted: false,
+  watered: false,
+  blooming: false,
+  puff: false,
+};
+
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+function resetCycle(newMound) {
+  state.planted = false;
+  state.watered = false;
+  state.blooming = false;
+  state.puff = false;
+
+  rainActive = false;
+  wetness = 0;
+  growth = 0;
+  followedSeed = null;
+
+  rainMat.opacity = 0;
+  rainButton.disabled = false;
+
+  if (newMound) activeMound = /** @type {THREE.Mesh} */ (newMound);
+
+  plant.visible = false;
+  puff.visible = false;
+  bud.visible = false;
+
+  stem.scale.y = 0.01;
+  stem.position.y = 0.06;
+
+  plant.position.copy(activeMound.position);
+  setStatus("Click the mound to plant a seed.");
+}
+
+function startRain() {
+  if (!state.planted || rainActive || state.watered) return;
+  rainActive = true;
+  rainButton.disabled = true;
+  setStatus("Rain nourishes the mound. Now click the sun.");
+}
+
+rainButton.addEventListener("click", startRain);
+
+function toNdc(event) {
+  pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
 }
 
 /* -----------------------------
-   RAYCASTING + INPUT
+   INPUT
 ------------------------------ */
-const raycaster = new THREE.Raycaster();
-const mouseNDC = new THREE.Vector2();
-let isMouseDown = false;
+window.addEventListener("pointerdown", (event) => {
+  toNdc(event);
+  raycaster.setFromCamera(pointer, camera);
 
-let draggedCloud = null;
-const CLOUD_Y = 18.5;
-const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -CLOUD_Y);
+  // NOTE: include bud so click works (bud isn't in the list otherwise).
+  const hits = raycaster.intersectObjects(
+    [activeMound, sun, cloudLeft, cloudRight, bud, ...seeds.map((s) => s.mesh)],
+    true
+  );
 
-function setMouseFromEvent(e) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-  const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-  mouseNDC.set(x, y);
-}
+  if (!hits.length) return;
 
-function intersectObjects(objList) {
-  raycaster.setFromCamera(mouseNDC, camera);
-  return raycaster.intersectObjects(objList, true);
-}
+  const target = hits[0].object;
 
-function getRootNamed(obj, name) {
-  let cur = obj;
-  while (cur) {
-    if (cur.name === name) return cur;
-    cur = cur.parent;
-  }
-  return null;
-}
-
-let plantedSeed = null;
-
-function plantSeedAt(point) {
-  if (plantedSeed) {
-    scene.remove(plantedSeed);
-    plantedSeed = null;
-  }
-
-  const seedGeo = new THREE.SphereGeometry(0.14, 18, 14);
-  const seedMat = new THREE.MeshStandardMaterial({
-    color: 0x5d4037,
-    roughness: 1.0,
-    metalness: 0.0,
-  });
-
-  plantedSeed = new THREE.Mesh(seedGeo, seedMat);
-  const y = terrainHeight(point.x, point.z);
-  plantedSeed.position.set(point.x, y + 0.18, point.z);
-  plantedSeed.castShadow = true;
-  plantedSeed.name = "seed";
-  scene.add(plantedSeed);
-
-  state = GameState.SeedPlanted;
-  console.log("State:", state);
-}
-
-// Reset key (no UI button)
-window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "r") {
-    // reset state + seed
-    state = GameState.Explore;
-    if (plantedSeed) {
-      scene.remove(plantedSeed);
-      plantedSeed = null;
-    }
-
-    // reset camera
-    controls.target.copy(CAM_HOME.target);
-    camera.position.copy(CAM_HOME.pos);
-    controls.update();
-
-    console.log("Reset: State:", state);
-  }
-});
-
-window.addEventListener("pointerdown", (e) => {
-  isMouseDown = true;
-  setMouseFromEvent(e);
-
-  // Cloud drag
-  const cloudHits = intersectObjects(clouds);
-  if (cloudHits.length > 0) {
-    const rootCloud = getRootNamed(cloudHits[0].object, "cloud");
-    if (rootCloud) {
-      draggedCloud = rootCloud;
-      return;
-    }
-  }
-
-  // Mound click -> plant
-  const moundHits = intersectObjects([mound]);
-  if (moundHits.length > 0 && state === GameState.Explore) {
-    plantSeedAt(moundHits[0].point);
+  if (target.userData.type === "cloud") {
+    dragging = target;
     return;
   }
 
-  // Sun click
-  const sunHits = intersectObjects([sun]);
-  if (sunHits.length > 0) {
-    console.log("Clicked sun");
+  if (target === activeMound && !state.planted) {
+    state.planted = true;
+    plant.visible = true;
+    stem.scale.y = 0.01;
+    stem.position.y = 0.06;
+    bud.visible = false;
+    setStatus("Great. Make it rain (button or drag clouds together).");
     return;
   }
-});
 
-window.addEventListener("pointermove", (e) => {
-  setMouseFromEvent(e);
+  if (target === sun && state.watered && !state.puff) {
+    state.blooming = true;
+    setStatus("Sunlight helps it grow. Wait for bloom...");
+    return;
+  }
 
-  if (isMouseDown && draggedCloud) {
-    raycaster.setFromCamera(mouseNDC, camera);
-    const hitPoint = new THREE.Vector3();
-    raycaster.ray.intersectPlane(dragPlane, hitPoint);
-    draggedCloud.position.x = hitPoint.x;
-    draggedCloud.position.z = hitPoint.z;
+  const pickedSeed = seeds.find((s) => s.mesh === target);
+  if (pickedSeed) {
+    followedSeed = pickedSeed;
+    setStatus("Following seed... it will start a new cycle where it lands.");
+    return;
+  }
+
+  if (target === bud && state.puff) {
+    disperseSeeds();
   }
 });
 
 window.addEventListener("pointerup", () => {
-  isMouseDown = false;
-  draggedCloud = null;
+  dragging = null;
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!dragging) return;
+
+  toNdc(event);
+  raycaster.setFromCamera(pointer, camera);
+
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -8.5);
+  if (raycaster.ray.intersectPlane(plane, tmpV3)) {
+    dragging.position.x = THREE.MathUtils.clamp(tmpV3.x, -10, 10);
+    dragging.position.z = THREE.MathUtils.clamp(tmpV3.z, -3, 3);
+  }
+
+  if (cloudLeft.position.distanceTo(cloudRight.position) < 2.5) {
+    startRain();
+  }
 });
 
 /* -----------------------------
-   RESIZE
+   LOGIC
 ------------------------------ */
+function disperseSeeds() {
+  if (!state.puff) return;
+
+  state.puff = false;
+  puff.visible = false;
+  bud.visible = false;
+
+  for (let i = 0; i < 36; i++) {
+    const seed = new THREE.Mesh(
+      new THREE.SphereGeometry(0.055, 10, 10),
+      new THREE.MeshStandardMaterial({ color: "#f6f8ff" })
+    );
+    seed.castShadow = true;
+    seed.userData.type = "seed";
+    seed.position.copy(plant.position).add(new THREE.Vector3(0, 1.8, 0));
+    scene.add(seed);
+
+    const vel = new THREE.Vector3(
+      (Math.random() - 0.5) * 1.1,
+      1.4 + Math.random() * 1.7,
+      (Math.random() - 0.5) * 1.1
+    ).add(windDirection.clone().multiplyScalar(0.7 + Math.random() * 0.6));
+
+    seeds.push({ mesh: seed, velocity: vel, active: true, landed: false });
+  }
+
+  setStatus("Seeds dispersed! Click a seed to follow it.");
+}
+
+function updateRain(dt, elapsed) {
+  if (rainActive) {
+    wetness = Math.min(1, wetness + dt * 0.25);
+    rainMat.opacity = Math.min(0.9, wetness);
+  } else {
+    rainMat.opacity = Math.max(0, rainMat.opacity - dt * 0.8);
+  }
+
+  if (wetness >= 1 && !state.watered) {
+    state.watered = true;
+    rainActive = false;
+    setStatus("Now click the sun to trigger growth.");
+  }
+
+  const positions = /** @type {Float32Array} */ (rain.geometry.attributes.position.array);
+  for (let i = 0; i < rainCount; i++) {
+    positions[i * 3] =
+      activeMound.position.x +
+      (Math.random() - 0.5) * 3.2 +
+      windDirection.x * Math.sin(elapsed + i) * 0.03;
+
+    positions[i * 3 + 1] -= rainVel[i] * dt;
+
+    positions[i * 3 + 2] =
+      activeMound.position.z +
+      (Math.random() - 0.5) * 3.2 +
+      windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
+
+    if (positions[i * 3 + 1] < 0.6) {
+      positions[i * 3 + 1] = 6 + Math.random() * 5;
+    }
+  }
+  rain.geometry.attributes.position.needsUpdate = true;
+
+  const dryColor = new THREE.Color("#795641");
+  const wetColor = new THREE.Color("#50392b");
+
+  const moundMat = /** @type {THREE.MeshStandardMaterial} */ (activeMound.material);
+  moundMat.color.copy(dryColor.clone().lerp(wetColor, wetness));
+  moundMat.roughness = THREE.MathUtils.lerp(0.95, 0.35, wetness);
+}
+
+function updateGrowth(dt) {
+  if (!state.blooming) return;
+
+  growth = Math.min(1, growth + dt * 0.22);
+
+  stem.scale.y = Math.max(0.05, growth);
+  stem.position.y = 0.06 + growth * 0.64;
+  bud.visible = growth > 0.35;
+
+  if (growth > 0.7) {
+    /** @type {THREE.MeshStandardMaterial} */ (bud.material).color.set("#ffe77a");
+  }
+
+  if (growth >= 1) {
+    state.blooming = false;
+    state.puff = true;
+    puff.visible = true;
+    bud.visible = true;
+    /** @type {THREE.MeshStandardMaterial} */ (bud.material).color.set("#ffffff");
+    setStatus("Dandelion puff ready. Click the flower to disperse seeds.");
+  }
+}
+
+function updateSeeds(dt, elapsed) {
+  for (const seed of seeds) {
+    if (!seed.active) continue;
+    if (seed.landed) continue;
+
+    seed.velocity.addScaledVector(
+      windDirection,
+      dt * (0.2 + Math.sin(elapsed + seed.mesh.id) * 0.2)
+    );
+    seed.velocity.y -= 1.2 * dt;
+    seed.mesh.position.addScaledVector(seed.velocity, dt);
+
+    if (seed.mesh.position.y <= 0.45) {
+      seed.mesh.position.y = 0.45;
+      seed.velocity.set(0, 0, 0);
+      seed.landed = true;
+
+      if (followedSeed === seed) {
+        const newMound = addMound(
+          new THREE.Vector3(seed.mesh.position.x, 0.45, seed.mesh.position.z)
+        );
+        resetCycle(newMound);
+        setStatus("A new mound formed. Click it to plant again.");
+      }
+    }
+  }
+}
+
+/* -----------------------------
+   LOOP
+------------------------------ */
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(clock.getDelta(), 0.033);
+  const elapsed = clock.elapsedTime;
+
+  const grassShader = grass.material.userData.shader;
+  if (grassShader) grassShader.uniforms.time.value = elapsed;
+
+  cloudLeft.position.x += Math.sin(elapsed * 0.25) * 0.002;
+  cloudRight.position.x -= Math.sin(elapsed * 0.22) * 0.002;
+
+  updateRain(dt, elapsed);
+  updateGrowth(dt);
+  updateSeeds(dt, elapsed);
+
+  const target = (followedSeed && followedSeed.mesh.position) || activeMound.position;
+  const cameraTarget = target.clone().add(new THREE.Vector3(7.5, 5.5, 8));
+  camera.position.lerp(cameraTarget, 0.02);
+  camera.lookAt(target.clone().add(new THREE.Vector3(0, 1.4, 0)));
+
+  renderer.render(scene, camera);
+}
+
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-/* -----------------------------
-   ANIMATION LOOP
------------------------------- */
-const clock = new THREE.Clock();
-
-function animate() {
-  requestAnimationFrame(animate);
-
-  const t = clock.getElapsedTime();
-
-  if (grass.material.userData.shader) {
-    grass.material.userData.shader.uniforms.uTime.value = t;
-  }
-
-  // subtle cloud drift for life (but small so composition stays stable)
-  for (let i = 0; i < clouds.length; i++) {
-    if (clouds[i] === draggedCloud) continue;
-    clouds[i].position.x += Math.sin(t * 0.10 + i * 1.7) * 0.008;
-    clouds[i].position.z += Math.cos(t * 0.09 + i * 1.3) * 0.008;
-  }
-
-  controls.update();
-  renderer.render(scene, camera);
-}
-
+resetCycle();
 animate();
