@@ -286,7 +286,7 @@ const rain = new THREE.Points(rainGeo, rainMat);
    PLANT (STEM/BUD/PUFF)
 ------------------------------ */
 const stem = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.07, 0.1, 1.2, 16),
+  new THREE.CylinderGeometry(0.07, 0.1, 1.5, 16),
   new THREE.MeshStandardMaterial({ color: "#6ea557" })
 );
 stem.position.y = 1.05;
@@ -511,7 +511,7 @@ function disperseSeeds() {
 }
 
 function updateRain(dt, elapsed) {
-  if (rainActive) {
+  if (rainActive) {  
     let isOverMound = false;
     if(rainClouds && rainClouds.length > 0) {
       let cloudCenter;
@@ -525,18 +525,17 @@ function updateRain(dt, elapsed) {
           Math.pow(cloudCenter.z - activeMound.position.z, 2)
         );
 
-       
         isOverMound = distance < 3;
     } 
    
     if (isOverMound) {
       wetness = Math.min(1, wetness + dt * 0.25);
       rainMat.opacity = Math.min(0.9, wetness);
-      if (wetness > 0 && wetness < 0.1) {  
+      if (wetness < 1) {  
       setStatus("Success! The clouds are watering the mound!");
     }
 
-      const dryColor = new THREE.Color("#795641");
+      const dryColor = new THREE.Color("#825f4a");
       const wetColor = new THREE.Color("#483325");
       const moundMat = activeMound.material;
       moundMat.color.copy(dryColor.clone().lerp(wetColor, wetness));
@@ -546,25 +545,25 @@ function updateRain(dt, elapsed) {
       setStatus("Position the clouds over the mound to water it!");
     }
     
-     const positions = rain.geometry.attributes.position.array;
-      for (let i = 0; i < rainCount; i++) {
-        positions[i * 3] =
-          activeMound.position.x +
-          (Math.random() - 0.5) * 3.2 +
-          windDirection.x * Math.sin(elapsed + i) * 0.03;
+    const positions = rain.geometry.attributes.position.array;
+    for (let i = 0; i < rainCount; i++) {
+      positions[i * 3] =
+        activeMound.position.x +
+        (Math.random() - 0.5) * 3.2 +
+        windDirection.x * Math.sin(elapsed + i) * 0.03;
 
-        positions[i * 3 + 1] -= rainVel[i] * dt;
+      positions[i * 3 + 1] -= rainVel[i] * dt;
 
-        positions[i * 3 + 2] =
-          activeMound.position.z +
-          (Math.random() - 0.5) * 3.2 +
-          windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
+      positions[i * 3 + 2] =
+        activeMound.position.z +
+        (Math.random() - 0.5) * 3.2 +
+        windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
 
-        if (positions[i * 3 + 1] < 0.6) {
-          positions[i * 3 + 1] = 6 + Math.random() * 5;
-        }
+      if (positions[i * 3 + 1] < 0.6) {
+        positions[i * 3 + 1] = 6 + Math.random() * 5;
       }
-      rain.geometry.attributes.position.needsUpdate = true;
+    }
+    rain.geometry.attributes.position.needsUpdate = true;
   } else {
     rainMat.opacity = Math.max(0, rainMat.opacity - dt * 0.8);
   }
@@ -614,7 +613,9 @@ function updateGrowth(dt) {
 
   stem.scale.y = Math.max(0.05, growth);
   stem.position.y = 0.06 + growth * 0.64;
+  bud.position.y = stem.position.y + (stem.scale.y * 0.75);
   bud.visible = growth > 0.35;
+  puff.position.y = bud.position.y;
 
   if (growth > 0.7) {
     /** @type {THREE.MeshStandardMaterial} */ (bud.material).color.set("#ffe77a");
