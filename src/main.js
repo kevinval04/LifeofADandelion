@@ -191,15 +191,16 @@ const grass = addGrass();
     }
 
     cloudGroup.userData.type = "cloud";
+    cloudGroup.userData.draggable = true;
     return cloudGroup;
   }
   const clouds = [];
   for (let i = 0; i < 3; i++) {
     const cloud = createFluffyCloud();
     cloud.position.set(
-      (Math.random() - 0.5) * 20,
-      8 + Math.random() * 4,
-      (Math.random() - 0.5) * 10
+      -10 + (i * 8),    
+      11 + (i % 2),              
+      -4  + (i % 2)       
     );
     scene.add(cloud);
     clouds.push(cloud);
@@ -242,10 +243,9 @@ const grass = addGrass();
   sunGroup.add(sunCore, sunGlow, sunHalo);
   sunGroup.position.set(2, 12, -8);
   sunGroup.userData.type = "sun";
-  sunGroup.userData.draggable = true;
   scene.add(sunGroup);
 
-  const sun = sunGroup; // Keep reference as 'sun' for compatibility
+  const sun = sunGroup; 
 
 /* -----------------------------
      SUN RAYS
@@ -271,7 +271,7 @@ const rainVel = new Float32Array(rainCount);
 
 for (let i = 0; i < rainCount; i++) {
   rainPos[i * 3] = (Math.random() - 0.5) * 4;
-  rainPos[i * 3 + 1] = 4 + Math.random() * 7;
+  rainPos[i * 3 + 1] = 10 + Math.random() * 2;
   rainPos[i * 3 + 2] = (Math.random() - 0.5) * 4;
   rainVel[i] = 6 + Math.random() * 8;
 }
@@ -280,13 +280,13 @@ const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
 
 const rainMat = new THREE.PointsMaterial({
-  color: "#bddfff",
+  color: "#419bef",
   size: 0.08,
   transparent: true,
   opacity: 0,
 });
 const rain = new THREE.Points(rainGeo, rainMat);
-scene.add(rain);
+//scene.add(rain);
 
 /* -----------------------------
    PLANT (STEM/BUD/PUFF)
@@ -351,6 +351,7 @@ let rainActive = false;
 let wetness = 0;
 /** @type {{mesh:THREE.Mesh, velocity:THREE.Vector3, active:boolean, landed:boolean} | null} */
 let followedSeed = null;
+let rainClouds = null;
 
 const state = {
   planted: false,
@@ -390,9 +391,11 @@ function resetCycle(newMound) {
   setStatus("Click the mound to plant a seed.");
 }
 
-function startRain() {
+function startRain(clouds = null) {
   if (!state.planted || rainActive || state.watered) return;
   rainActive = true;
+  rainClouds = clouds;
+  scene.add(rain);
   rainButton.disabled = true;
   setStatus("Rain nourishes the mound. Now click the sun.");
 }
@@ -422,8 +425,11 @@ window.addEventListener("pointerdown", (event) => {
   const target = hits[0].object;
 
   if (target.userData.type === "cloud" || target.parent?.userData.type === "cloud" 
-    || target.userData.draggable){
+    || target.userData.draggable || target.userData.draggable || target.parent?.userData.draggable){
     if (target.parent?.userData.type === "cloud"){
+      dragging = target.parent;
+    }
+    else if (target.parent?.userData.draggable) {
       dragging = target.parent;
     }
     else {
@@ -540,26 +546,34 @@ function updateRain(dt, elapsed) {
   if (wetness >= 1 && !state.watered) {
     state.watered = true;
     rainActive = false;
+    scene.remove(rain);
     setStatus("Now click the sun to trigger growth.");
   }
 
   const positions = /** @type {Float32Array} */ (rain.geometry.attributes.position.array);
   for (let i = 0; i < rainCount; i++) {
-    positions[i * 3] =
-      activeMound.position.x +
-      (Math.random() - 0.5) * 3.2 +
-      windDirection.x * Math.sin(elapsed + i) * 0.03;
-
-    positions[i * 3 + 1] -= rainVel[i] * dt;
-
-    positions[i * 3 + 2] =
-      activeMound.position.z +
-      (Math.random() - 0.5) * 3.2 +
-      windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
-
-    if (positions[i * 3 + 1] < 0.6) {
-      positions[i * 3 + 1] = 6 + Math.random() * 5;
+    let rainX, rainZ;
+    if (rainClouds && rainClouds.length === 2) {
+      const midpoint = rainClouds[0].position.clone().add(rainClouds[1].position).multiplyScalar(0.5);
+      rainX = midpoint.x + (Math.random() - 0.5) * 6;
+      rainZ = midpoint.z + (Math.random() - 0.5) * 6;
+    } else {
+      rainX = activeMound.position.x + (Math.random() - 0.5) * 3.2;
+      rainZ = activeMound.position.z + (Math.random() - 0.5) * 3.2;
     }
+
+    positions[i * 3] = rainX + windDirection.x * Math.sin(elapsed + i) * 0.03;
+    positions[i * 3 + 1] -= rainVel[i] * dt;
+    positions[i * 3 + 2] = rainZ + windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
+    /*
+    positions[i * 3] = activeMound.position.x + (Math.random() - 0.5) * 3.2 + windDirection.x * Math.sin(elapsed + i) * 0.03;
+    positions[i * 3 + 1] -= rainVel[i] * dt;
+    positions[i * 3 + 2] = activeMound.position.z + (Math.random() - 0.5) * 3.2 + windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
+*/
+    if (positions[i * 3 + 1] < 0.6) {
+      positions[i * 3 + 1] = 10 + Math.random() * 2;
+    }
+      
   }
   rain.geometry.attributes.position.needsUpdate = true;
 
@@ -637,6 +651,22 @@ function animate() {
   updateRain(dt, elapsed);
   updateGrowth(dt);
   updateSeeds(dt, elapsed);
+
+  // Check cloud collision for rain
+  let collidedClouds = null
+  if (!rainActive && state.planted && !state.watered) {
+    for (let i = 0; i < clouds.length; i++) {
+      for (let j = i + 1; j < clouds.length; j++) {
+        const distance = clouds[i].position.distanceTo(clouds[j].position);
+        if (distance < 4) {  // Collision threshold
+          collidedClouds = [clouds[i], clouds[j]];
+          startRain(collidedClouds);
+          break;
+        }
+      }
+      if (collidedClouds) break;
+    }
+  }
 
    // Animate light ray
   if (lightCone.visible) {
