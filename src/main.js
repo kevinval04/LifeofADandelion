@@ -48,14 +48,16 @@ const hemi = new THREE.HemisphereLight("#dff6ff", "#5f7f55", 0.6);
 scene.add(hemi);
 
 const sunLight = new THREE.DirectionalLight("#fff4d6", 1.7);
-sunLight.position.set(10, 18, 6);
+sunLight.position.set(2, 12, -8);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.set(2048, 2048);
-sunLight.shadow.camera.left = -25;
-sunLight.shadow.camera.right = 25;
-sunLight.shadow.camera.top = 25;
-sunLight.shadow.camera.bottom = -25;
+sunLight.shadow.camera.left = -15;
+sunLight.shadow.camera.right = 15;
+sunLight.shadow.camera.top = 15;
+sunLight.shadow.camera.bottom = -15;
 scene.add(sunLight);
+sunLight.target.position.set(0, 0, 0);
+scene.add(sunLight.target);
 
 /* -----------------------------
    GROUND / MOUNDS
@@ -159,7 +161,7 @@ function addGrass() {
 const grass = addGrass();
 
 /* -----------------------------
-   CLOUDS (SPRITES)
+   CLOUDS 
 ------------------------------ */
  function createFluffyCloud() {
     const cloudGroup = new THREE.Group();
@@ -176,6 +178,7 @@ const grass = addGrass();
           transparent: true
         })
       );
+      sphere.castShadow = true;
 
       // Position spheres randomly to form cloud shape
       sphere.position.set(
@@ -191,7 +194,7 @@ const grass = addGrass();
     return cloudGroup;
   }
   const clouds = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const cloud = createFluffyCloud();
     cloud.position.set(
       (Math.random() - 0.5) * 20,
@@ -237,12 +240,27 @@ const grass = addGrass();
   );
 
   sunGroup.add(sunCore, sunGlow, sunHalo);
-  sunGroup.position.set(-10, 11, -10);
+  sunGroup.position.set(2, 12, -8);
   sunGroup.userData.type = "sun";
   sunGroup.userData.draggable = true;
   scene.add(sunGroup);
 
   const sun = sunGroup; // Keep reference as 'sun' for compatibility
+
+/* -----------------------------
+     SUN RAYS
+------------------------------- */
+  const lightCone = new THREE.Mesh(
+    new THREE.ConeGeometry(2, 15, 32, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: "#fff4d6",
+      transparent: true,
+      opacity: 0.2,
+      side: THREE.DoubleSide
+    })
+  );
+  lightCone.visible = false;
+  scene.add(lightCone);
 
 /* -----------------------------
    RAIN (POINTS)
@@ -405,14 +423,9 @@ window.addEventListener("pointerdown", (event) => {
 
   if (target.userData.type === "cloud" || target.parent?.userData.type === "cloud" 
     || target.userData.draggable){
-    //|| target.parent?.userData.draggable) {
     if (target.parent?.userData.type === "cloud"){
       dragging = target.parent;
     }
-    /*
-    else if (target.parent?.userData.draggable) {
-      dragging = target.parent;
-    }*/
     else {
       dragging = target;
     }
@@ -431,6 +444,7 @@ window.addEventListener("pointerdown", (event) => {
 
   if ((target === sun || target.parent === sun) && state.watered && !state.puff) {
     state.blooming = true;
+    lightCone.visible = true;
     setStatus("Sunlight helps it grow. Wait for bloom...");
     return;
   }
@@ -620,12 +634,33 @@ function animate() {
   const grassShader = grass.material.userData.shader;
   if (grassShader) grassShader.uniforms.time.value = elapsed;
 
-  //cloudLeft.position.x += Math.sin(elapsed * 0.25) * 0.002;
-  //cloudRight.position.x -= Math.sin(elapsed * 0.22) * 0.002;
-
   updateRain(dt, elapsed);
   updateGrowth(dt);
   updateSeeds(dt, elapsed);
+
+   // Animate light ray
+  if (lightCone.visible) {
+    const sunPos = new THREE.Vector3(2, 12, -8);
+    const moundPos = activeMound.position;
+
+    const midpoint = new THREE.Vector3(
+      (sunPos.x + moundPos.x) / 2,
+      (sunPos.y + moundPos.y) / 2,
+      (sunPos.z + moundPos.z) / 2
+    );
+
+    lightCone.position.copy(midpoint);
+
+    const distance = sunPos.distanceTo(moundPos);
+    lightCone.scale.y = 1.2 *distance / 15;
+
+    lightCone.lookAt(moundPos);
+    lightCone.rotateX(-Math.PI / 2);
+
+    if (state.puff) {
+      lightCone.visible = false;
+    }
+  }
 
   const target = (followedSeed && followedSeed.mesh.position) || activeMound.position;
   const cameraTarget = target.clone().add(new THREE.Vector3(7.5, 5.5, 8)); //change back to original 7.5, 5.5, 8
