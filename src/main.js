@@ -8,13 +8,11 @@ const canvas = /** @type {HTMLCanvasElement|null} */ (
   document.getElementById("three-canvas")
 );
 const statusEl = /** @type {HTMLElement|null} */ (document.getElementById("status"));
-const rainButton = /** @type {HTMLButtonElement|null} */ (
-  document.getElementById("rain-button")
-);
+
 
 if (!canvas) throw new Error("Missing <canvas id='three-canvas'>");
 if (!statusEl) throw new Error("Missing #status element");
-if (!rainButton) throw new Error("Missing #rain-button element");
+
 
 /* -----------------------------
    RENDERER / SCENE / CAMERA
@@ -166,7 +164,7 @@ const grass = addGrass();
  function createFluffyCloud() {
     const cloudGroup = new THREE.Group();
 
-    // Create cloud using multiple spheres
+    //create cloud using multiple spheres
     for (let i = 0; i < 15; i++) {
       const radius = 0.8 + Math.random() * 0.6;
       const sphere = new THREE.Mesh(
@@ -180,7 +178,6 @@ const grass = addGrass();
       );
       sphere.castShadow = true;
 
-      // Position spheres randomly to form cloud shape
       sphere.position.set(
         (Math.random() - 0.5) * 3,
         (Math.random() - 0.5) * 1,
@@ -209,10 +206,8 @@ const grass = addGrass();
 /* -----------------------------
    SUN
 ------------------------------ */
- // Create sun group with multiple layers for glow effect
   const sunGroup = new THREE.Group();
-
-  // Core sun (bright center)
+  // bright center
   const sunCore = new THREE.Mesh(
     new THREE.SphereGeometry(0.7, 24, 24),
     new THREE.MeshBasicMaterial({
@@ -220,7 +215,7 @@ const grass = addGrass();
     })
   );
 
-  // Middle glow layer
+  // middle glow layer
   const sunGlow = new THREE.Mesh(
     new THREE.SphereGeometry(1.0, 24, 24),
     new THREE.MeshBasicMaterial({
@@ -230,7 +225,7 @@ const grass = addGrass();
     })
   );
 
-  // Outer halo
+  // outer halo
   const sunHalo = new THREE.Mesh(
     new THREE.SphereGeometry(1.5, 24, 24),
     new THREE.MeshBasicMaterial({
@@ -286,7 +281,6 @@ const rainMat = new THREE.PointsMaterial({
   opacity: 0,
 });
 const rain = new THREE.Points(rainGeo, rainMat);
-//scene.add(rain);
 
 /* -----------------------------
    PLANT (STEM/BUD/PUFF)
@@ -376,7 +370,6 @@ function resetCycle(newMound) {
   followedSeed = null;
 
   rainMat.opacity = 0;
-  rainButton.disabled = false;
 
   if (newMound) activeMound = /** @type {THREE.Mesh} */ (newMound);
 
@@ -396,11 +389,10 @@ function startRain(clouds = null) {
   rainActive = true;
   rainClouds = clouds;
   scene.add(rain);
-  rainButton.disabled = true;
-  setStatus("Rain nourishes the mound. Now click the sun.");
+  if (clouds) {
+    setStatus("Rain started! Move clouds over the mound to water it.");
+  } 
 }
-
-rainButton.addEventListener("click", startRain);
 
 function toNdc(event) {
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -444,7 +436,7 @@ window.addEventListener("pointerdown", (event) => {
     stem.scale.y = 0.01;
     stem.position.y = 0.06;
     bud.visible = false;
-    setStatus("Great. Make it rain (button or drag clouds together).");
+    setStatus("Great. Make it rain by dragging the clouds together over the mound.");
     return;
   }
 
@@ -479,9 +471,11 @@ window.addEventListener("pointermove", (event) => {
 
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -8.5);
   if (raycaster.ray.intersectPlane(plane, tmpV3)) {
-    dragging.position.x = THREE.MathUtils.clamp(tmpV3.x, -10, 10);
-    dragging.position.z = THREE.MathUtils.clamp(tmpV3.z, -3, 3);
+   const boundaryRadius = 12;
+  dragging.position.x = THREE.MathUtils.clamp(tmpV3.x, activeMound.position.x - boundaryRadius, activeMound.position.x + boundaryRadius);
+  dragging.position.z = THREE.MathUtils.clamp(tmpV3.z, activeMound.position.z - boundaryRadius, activeMound.position.z + boundaryRadius);
   }
+  
 });
 
 /* -----------------------------
@@ -518,8 +512,40 @@ function disperseSeeds() {
 
 function updateRain(dt, elapsed) {
   if (rainActive) {
-    wetness = Math.min(1, wetness + dt * 0.25);
-    rainMat.opacity = Math.min(0.9, wetness);
+    let isOverMound = false;
+    if(rainClouds && rainClouds.length > 0) {
+      let cloudCenter;
+        if (rainClouds.length === 2) {
+          cloudCenter = rainClouds[0].position.clone().add(rainClouds[1].position).multiplyScalar(0.5);
+        } else {
+          cloudCenter = rainClouds[0].position.clone();
+        }
+        const distance = Math.sqrt(
+          Math.pow(cloudCenter.x - activeMound.position.x, 2) +
+          Math.pow(cloudCenter.z - activeMound.position.z, 2)
+        );
+
+       
+        isOverMound = distance < 3;
+    } 
+   
+    if (isOverMound) {
+      wetness = Math.min(1, wetness + dt * 0.25);
+      rainMat.opacity = Math.min(0.9, wetness);
+      if (wetness > 0 && wetness < 0.1) {  
+      setStatus("Success! The clouds are watering the mound!");
+    }
+
+      const dryColor = new THREE.Color("#795641");
+      const wetColor = new THREE.Color("#483325");
+      const moundMat = activeMound.material;
+      moundMat.color.copy(dryColor.clone().lerp(wetColor, wetness));
+      moundMat.roughness = THREE.MathUtils.lerp(0.95, 0.35, wetness);
+    } else {
+      rainMat.opacity = 0.9;
+      setStatus("Position the clouds over the mound to water it!");
+    }
+    
      const positions = rain.geometry.attributes.position.array;
       for (let i = 0; i < rainCount; i++) {
         positions[i * 3] =
@@ -565,11 +591,7 @@ function updateRain(dt, elapsed) {
     positions[i * 3] = rainX + windDirection.x * Math.sin(elapsed + i) * 0.03;
     positions[i * 3 + 1] -= rainVel[i] * dt;
     positions[i * 3 + 2] = rainZ + windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
-    /*
-    positions[i * 3] = activeMound.position.x + (Math.random() - 0.5) * 3.2 + windDirection.x * Math.sin(elapsed + i) * 0.03;
-    positions[i * 3 + 1] -= rainVel[i] * dt;
-    positions[i * 3 + 2] = activeMound.position.z + (Math.random() - 0.5) * 3.2 + windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
-*/
+    
     if (positions[i * 3 + 1] < 0.6) {
       positions[i * 3 + 1] = 10 + Math.random() * 2;
     }
@@ -652,13 +674,13 @@ function animate() {
   updateGrowth(dt);
   updateSeeds(dt, elapsed);
 
-  // Check cloud collision for rain
+  // check cloud collision for rain
   let collidedClouds = null
   if (!rainActive && state.planted && !state.watered) {
     for (let i = 0; i < clouds.length; i++) {
       for (let j = i + 1; j < clouds.length; j++) {
         const distance = clouds[i].position.distanceTo(clouds[j].position);
-        if (distance < 4) {  // Collision threshold
+        if (distance < 4) {  // collision threshold
           collidedClouds = [clouds[i], clouds[j]];
           startRain(collidedClouds);
           break;
@@ -668,7 +690,7 @@ function animate() {
     }
   }
 
-   // Animate light ray
+   // animate light ray
   if (lightCone.visible) {
     const sunPos = new THREE.Vector3(2, 12, -8);
     const moundPos = activeMound.position;
