@@ -463,6 +463,10 @@ function updateWindVisuals(dt, elapsed, seedPos) {
 const seeds = [];
 
 const tmpV3 = new THREE.Vector3();
+
+const dragOffset = new THREE.Vector3();
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -8.5);
+
 /** @type {THREE.Object3D|null} */
 let dragging = null;
 
@@ -600,7 +604,14 @@ window.addEventListener("pointerdown", (event) => {
     const cloudGroup = target.parent?.userData.type === "cloud" ? target.parent
       : target.parent?.userData.draggable ? target.parent : target;
     if (!state.planted) return;
-    if (!rainActive) dragging = cloudGroup;
+    if (!rainActive) {
+      dragging = cloudGroup;
+      if (raycaster.ray.intersectPlane(dragPlane, tmpV3)) {
+        dragOffset.set(tmpV3.x - cloudGroup.position.x, 0, tmpV3.z - cloudGroup.position.z);
+      } else {
+        dragOffset.set(0, 0, 0);
+      }
+    }
     return;
   }
 
@@ -632,17 +643,25 @@ window.addEventListener("pointerdown", (event) => {
   if (target === bud && state.puff) disperseSeeds();
 });
 
-window.addEventListener("pointerup", () => { dragging = null; });
+
+window.addEventListener("pointerup", () => {
+  dragging = null;
+  dragOffset.set(0, 0, 0);
+});
 
 window.addEventListener("pointermove", (event) => {
   if (dragging && !rainActive) {
     toNdc(event);
     raycaster.setFromCamera(pointer, camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -8.5);
-    if (raycaster.ray.intersectPlane(plane, tmpV3)) {
+
+    if (raycaster.ray.intersectPlane(dragPlane, tmpV3)) {
       const br = 12;
       dragging.position.x = THREE.MathUtils.clamp(tmpV3.x, activeMound.position.x - br, activeMound.position.x + br);
       dragging.position.z = THREE.MathUtils.clamp(tmpV3.z, activeMound.position.z - br, activeMound.position.z + br);
+      const nextX = tmpV3.x - dragOffset.x;
+      const nextZ = tmpV3.z - dragOffset.z;
+      dragging.position.x = THREE.MathUtils.clamp(nextX, activeMound.position.x - br, activeMound.position.x + br);
+      dragging.position.z = THREE.MathUtils.clamp(nextZ, activeMound.position.z - br, activeMound.position.z + br);
     }
   }
 
