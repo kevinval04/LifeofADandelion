@@ -215,19 +215,32 @@ scene.add(lightCone);
 /* -----------------------------
    RAIN
 ------------------------------ */
-const rainCount = 1700;
-const rainPos = new Float32Array(rainCount * 3);
+const rainCount = 1200;
+// Each drop = 2 vertices (top + bottom of streak), so 6 floats per drop
+const rainPos = new Float32Array(rainCount * 6);
 const rainVel = new Float32Array(rainCount);
+const rainStreak = new Float32Array(rainCount);
 for (let i = 0; i < rainCount; i++) {
-  rainPos[i * 3] = (Math.random() - 0.5) * 4;
-  rainPos[i * 3 + 1] = 10 + Math.random() * 2;
-  rainPos[i * 3 + 2] = (Math.random() - 0.5) * 4;
-  rainVel[i] = 6 + Math.random() * 8;
+  const x = (Math.random() - 0.5) * 4;
+  const y = Math.random() * 12;
+  const z = (Math.random() - 0.5) * 4;
+  const spd = 8 + Math.random() * 7;
+  const len = 0.13 + Math.random() * 0.1;
+  rainVel[i] = spd;
+  rainStreak[i] = len;
+  // top vertex
+  rainPos[i * 6]     = x;
+  rainPos[i * 6 + 1] = y;
+  rainPos[i * 6 + 2] = z;
+  // bottom vertex (streak below top)
+  rainPos[i * 6 + 3] = x;
+  rainPos[i * 6 + 4] = y - len;
+  rainPos[i * 6 + 5] = z;
 }
 const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
-const rainMat = new THREE.PointsMaterial({ color: "#419bef", size: 0.08, transparent: true, opacity: 0 });
-const rain = new THREE.Points(rainGeo, rainMat);
+const rainMat = new THREE.LineBasicMaterial({ color: "#c8e8ff", transparent: true, opacity: 0 });
+const rain = new THREE.LineSegments(rainGeo, rainMat);
 
 /* -----------------------------
    PLANT
@@ -812,10 +825,19 @@ function updateRain(dt, elapsed) {
 
     const pos = /** @type {Float32Array} */ (rain.geometry.attributes.position.array);
     for (let i = 0; i < rainCount; i++) {
-      pos[i * 3] = spawnCX + (Math.random() - 0.5) * 3.8 + windDirection.x * Math.sin(elapsed + i) * 0.03;
-      pos[i * 3 + 1] -= rainVel[i] * dt;
-      pos[i * 3 + 2] = spawnCZ + (Math.random() - 0.5) * 3.8 + windDirection.z * Math.cos(elapsed + i * 0.4) * 0.03;
-      if (pos[i * 3 + 1] < 0.6) pos[i * 3 + 1] = 10 + Math.random() * 2;
+      // Move top vertex straight down
+      pos[i * 6 + 1] -= rainVel[i] * dt;
+      // Respawn when drop hits the ground
+      if (pos[i * 6 + 1] < 0.5) {
+        pos[i * 6]     = spawnCX + (Math.random() - 0.5) * 3.8;
+        pos[i * 6 + 1] = 10 + Math.random() * 2;
+        pos[i * 6 + 2] = spawnCZ + (Math.random() - 0.5) * 3.8;
+      }
+      // Bottom vertex directly below top
+      const len = rainStreak[i];
+      pos[i * 6 + 3] = pos[i * 6];
+      pos[i * 6 + 4] = pos[i * 6 + 1] - len;
+      pos[i * 6 + 5] = pos[i * 6 + 2];
     }
     rain.geometry.attributes.position.needsUpdate = true;
   } else {
