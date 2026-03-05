@@ -243,6 +243,123 @@ const rainMat = new THREE.LineBasicMaterial({ color: "#c8e8ff", transparent: tru
 const rain = new THREE.LineSegments(rainGeo, rainMat);
 
 /* -----------------------------
+   SEASONAL SYSTEM
+------------------------------ */
+
+// Spring flowers — 3 colors, scattered across the field
+const springFlowers = ['#f4a0c0', '#c090e8', '#ffe060'].map(color => {
+  const fm = new THREE.InstancedMesh(
+    new THREE.CircleGeometry(0.12, 6),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.9, side: THREE.DoubleSide }),
+    280
+  );
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < 280; i++) {
+    const r = 3.5 + Math.sqrt(Math.random()) * 30;
+    const a = Math.random() * Math.PI * 2;
+    dummy.position.set(Math.cos(a) * r, 0.05, Math.sin(a) * r);
+    dummy.rotation.x = -Math.PI / 2;
+    dummy.rotation.z = Math.random() * Math.PI;
+    dummy.scale.setScalar(0.5 + Math.random() * 0.9);
+    dummy.updateMatrix();
+    fm.setMatrixAt(i, dummy.matrix);
+  }
+  fm.visible = false;
+  scene.add(fm);
+  return fm;
+});
+
+// Spring bees
+const BEE_COUNT = 16;
+const beePositions = new Float32Array(BEE_COUNT * 3);
+const beeData = Array.from({ length: BEE_COUNT }, () => ({
+  cx: (Math.random() - 0.5) * 12,
+  cz: (Math.random() - 0.5) * 12,
+  cy: 1.4 + Math.random() * 2.5,
+  angle: Math.random() * Math.PI * 2,
+  radius: 0.7 + Math.random() * 1.6,
+  speed: 1.5 + Math.random() * 2.0,
+  bobPhase: Math.random() * Math.PI * 2,
+}));
+const beeGeo = new THREE.BufferGeometry();
+beeGeo.setAttribute('position', new THREE.BufferAttribute(beePositions, 3));
+const beeMat = new THREE.PointsMaterial({ color: '#f8d020', size: 0.14, transparent: true, opacity: 0 });
+const bees = new THREE.Points(beeGeo, beeMat);
+scene.add(bees);
+
+// Winter ambient snowfall
+const SNOW_COUNT = 700;
+const snowAmbientPos = new Float32Array(SNOW_COUNT * 3);
+const snowAmbientVel = new Float32Array(SNOW_COUNT);
+for (let i = 0; i < SNOW_COUNT; i++) {
+  snowAmbientPos[i * 3]     = (Math.random() - 0.5) * 55;
+  snowAmbientPos[i * 3 + 1] = Math.random() * 16;
+  snowAmbientPos[i * 3 + 2] = (Math.random() - 0.5) * 55;
+  snowAmbientVel[i] = 0.35 + Math.random() * 0.7;
+}
+const snowAmbientGeo = new THREE.BufferGeometry();
+snowAmbientGeo.setAttribute('position', new THREE.BufferAttribute(snowAmbientPos, 3));
+const snowAmbientMat = new THREE.PointsMaterial({ color: '#eef4ff', size: 0.11, transparent: true, opacity: 0 });
+const ambientSnow = new THREE.Points(snowAmbientGeo, snowAmbientMat);
+scene.add(ambientSnow);
+
+const SEASONS = [
+  { name: 'Summer', sky: '#b9d2df', fog: '#b9d2df', hemiSky: '#dff6ff', hemiGround: '#5f7f55', sunColor: '#fff4d6', groundColor: '#668951', grassColor: '#7bb05a' },
+  { name: 'Fall',   sky: '#c09060', fog: '#a8783e', hemiSky: '#f0a060', hemiGround: '#6b4020', sunColor: '#ffb060', groundColor: '#8a7050', grassColor: '#c07828' },
+  { name: 'Winter', sky: '#b4c8d8', fog: '#ccd8e4', hemiSky: '#e0eeff', hemiGround: '#b8c8d4', sunColor: '#d8e8ff', groundColor: '#ccd4d8', grassColor: '#b8c8d0' },
+  { name: 'Spring', sky: '#a8cce0', fog: '#b4d8e4', hemiSky: '#c8f0d0', hemiGround: '#4a7c30', sunColor: '#fff8e0', groundColor: '#5a8a38', grassColor: '#66ae3e' },
+];
+let seasonIndex = 0;
+
+function applySeasonTheme(idx) {
+  const s = SEASONS[idx];
+  /** @type {THREE.Color} */ (scene.background).set(s.sky);
+  scene.fog.color.set(s.fog);
+  hemi.color.set(s.hemiSky);
+  hemi.groundColor.set(s.hemiGround);
+  sunLight.color.set(s.sunColor);
+  /** @type {THREE.MeshStandardMaterial} */ (ground.material).color.set(s.groundColor);
+  /** @type {THREE.MeshStandardMaterial} */ (grass.material).color.set(s.grassColor);
+
+  const isSpring = idx === 3;
+  const isWinter = idx === 2;
+  for (const f of springFlowers) f.visible = isSpring;
+  beeMat.opacity = isSpring ? 0.95 : 0;
+  snowAmbientMat.opacity = isWinter ? 0.75 : 0;
+}
+
+function updateSeasonalExtras(dt, elapsed) {
+  // Bees (spring)
+  if (beeMat.opacity > 0) {
+    const bp = beeGeo.attributes.position.array;
+    for (let i = 0; i < BEE_COUNT; i++) {
+      const d = beeData[i];
+      d.angle += d.speed * dt;
+      bp[i * 3]     = d.cx + Math.cos(d.angle) * d.radius;
+      bp[i * 3 + 1] = d.cy + Math.sin(elapsed * 2.2 + d.bobPhase) * 0.28;
+      bp[i * 3 + 2] = d.cz + Math.sin(d.angle) * d.radius;
+    }
+    beeGeo.attributes.position.needsUpdate = true;
+  }
+
+  // Ambient snow (winter)
+  if (snowAmbientMat.opacity > 0) {
+    const sp = snowAmbientGeo.attributes.position.array;
+    for (let i = 0; i < SNOW_COUNT; i++) {
+      sp[i * 3]     += Math.sin(elapsed * 0.5 + i * 0.31) * 0.009;
+      sp[i * 3 + 1] -= snowAmbientVel[i] * dt;
+      sp[i * 3 + 2] += Math.cos(elapsed * 0.4 + i * 0.27) * 0.007;
+      if (sp[i * 3 + 1] < 0) {
+        sp[i * 3]     = (Math.random() - 0.5) * 55;
+        sp[i * 3 + 1] = 16 + Math.random() * 3;
+        sp[i * 3 + 2] = (Math.random() - 0.5) * 55;
+      }
+    }
+    snowAmbientGeo.attributes.position.needsUpdate = true;
+  }
+}
+
+/* -----------------------------
    PLANT
 ------------------------------ */
 const stem = new THREE.Mesh(
@@ -558,6 +675,7 @@ function resetCycle(reuseSameMound = false) {
   plant.position.copy(activeMound.position);
 
   if (reuseSameMound) {
+    plant.visible = true;
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).color.set("#795641");
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).roughness = 0.95;
   }
@@ -827,11 +945,12 @@ function updateRain(dt, elapsed) {
     for (let i = 0; i < rainCount; i++) {
       // Move top vertex straight down
       pos[i * 6 + 1] -= rainVel[i] * dt;
-      // Respawn when drop hits the ground
-      if (pos[i * 6 + 1] < 0.5) {
-        pos[i * 6]     = spawnCX + (Math.random() - 0.5) * 3.8;
+      // Respawn when drop soaks into the ground
+      if (pos[i * 6 + 1] < -0.3) {
+        pos[i * 6]     = spawnCX + (Math.random() - 0.5) * 2.8;
         pos[i * 6 + 1] = 10 + Math.random() * 2;
-        pos[i * 6 + 2] = spawnCZ + (Math.random() - 0.5) * 3.8;
+        // Bias z slightly toward camera so more drops land on the visible mound face
+        pos[i * 6 + 2] = spawnCZ + (Math.random() - 0.5) * 2.0 + 0.7;
       }
       // Bottom vertex directly below top
       const len = rainStreak[i];
@@ -947,8 +1066,10 @@ function updateSeeds(dt, elapsed) {
         seeds.length = 0; // fully clear — next cycle starts fresh
 
         setTimeout(() => {
+          seasonIndex = (seasonIndex + 1) % SEASONS.length;
+          applySeasonTheme(seasonIndex);
           resetCycle(true);
-          setStatus("The seed found home!");
+          setStatus(`The seed found home! Welcome to ${SEASONS[seasonIndex].name}! Drag the clouds over the mound to water it again.`);
         }, 500);
       }
       continue;
@@ -1047,6 +1168,7 @@ function animate() {
     ? followedSeed.mesh.position
     : null;
   updateWindVisuals(dt, elapsed, gustSeedPos);
+  updateSeasonalExtras(dt, elapsed);
 
   updateCamera();
 
@@ -1072,5 +1194,6 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+applySeasonTheme(0);
 resetCycle();
 animate();
