@@ -303,11 +303,16 @@ const snowAmbientMat = new THREE.PointsMaterial({ color: '#eef4ff', size: 0.11, 
 const ambientSnow = new THREE.Points(snowAmbientGeo, snowAmbientMat);
 scene.add(ambientSnow);
 
+/** @type {THREE.Mesh[][]} */
+const treeLeafMeshes = [];
+/** @type {THREE.MeshStandardMaterial[]} */
+const treeLeafMats = [];
+
 const SEASONS = [
-  { name: 'Summer', sky: '#b9d2df', fog: '#b9d2df', hemiSky: '#dff6ff', hemiGround: '#5f7f55', sunColor: '#fff4d6', groundColor: '#668951', grassColor: '#7bb05a' },
-  { name: 'Fall',   sky: '#c09060', fog: '#a8783e', hemiSky: '#f0a060', hemiGround: '#6b4020', sunColor: '#ffb060', groundColor: '#8a7050', grassColor: '#c07828' },
-  { name: 'Winter', sky: '#b4c8d8', fog: '#ccd8e4', hemiSky: '#e0eeff', hemiGround: '#b8c8d4', sunColor: '#d8e8ff', groundColor: '#ccd4d8', grassColor: '#b8c8d0' },
-  { name: 'Spring', sky: '#a8cce0', fog: '#b4d8e4', hemiSky: '#c8f0d0', hemiGround: '#4a7c30', sunColor: '#fff8e0', groundColor: '#5a8a38', grassColor: '#66ae3e' },
+  { name: 'Summer', sky: '#b9d2df', fog: '#b9d2df', hemiSky: '#dff6ff', hemiGround: '#5f7f55', sunColor: '#fff4d6', groundColor: '#668951', grassColor: '#7bb05a', treeLeaf: '#72b840' },
+  { name: 'Fall',   sky: '#c09060', fog: '#a8783e', hemiSky: '#f0a060', hemiGround: '#6b4020', sunColor: '#ffb060', groundColor: '#8a7050', grassColor: '#c07828', treeLeaf: '#c85820' },
+  { name: 'Winter', sky: '#b4c8d8', fog: '#ccd8e4', hemiSky: '#e0eeff', hemiGround: '#b8c8d4', sunColor: '#d8e8ff', groundColor: '#ccd4d8', grassColor: '#b8c8d0', treeLeaf: null },
+  { name: 'Spring', sky: '#a8cce0', fog: '#b4d8e4', hemiSky: '#c8f0d0', hemiGround: '#4a7c30', sunColor: '#fff8e0', groundColor: '#5a8a38', grassColor: '#66ae3e', treeLeaf: '#f4a8c0' },
 ];
 let seasonIndex = 0;
 
@@ -326,6 +331,16 @@ function applySeasonTheme(idx) {
   for (const f of springFlowers) f.visible = isSpring;
   beeMat.opacity = isSpring ? 0.95 : 0;
   snowAmbientMat.opacity = isWinter ? 0.75 : 0;
+
+  // Background trees
+  for (let t = 0; t < treeLeafMats.length; t++) {
+    if (s.treeLeaf === null) {
+      for (const m of treeLeafMeshes[t]) m.visible = false;
+    } else {
+      for (const m of treeLeafMeshes[t]) m.visible = true;
+      treeLeafMats[t].color.set(s.treeLeaf);
+    }
+  }
 }
 
 function updateSeasonalExtras(dt, elapsed) {
@@ -358,6 +373,112 @@ function updateSeasonalExtras(dt, elapsed) {
     snowAmbientGeo.attributes.position.needsUpdate = true;
   }
 }
+
+/* -----------------------------
+   BACKGROUND TREES
+------------------------------ */
+function createBlockyTree(x, z, scale) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#2a1208', roughness: 0.93 });
+  const leafMat  = new THREE.MeshStandardMaterial({ color: '#72b840', roughness: 0.85 });
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const addCyl = (from, to, rTop, rBot) => {
+    const dir = to.clone().sub(from);
+    const len = dir.length();
+    if (len < 0.001) return;
+    const dn = dir.clone().normalize();
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, len, 6), trunkMat);
+    mesh.position.copy(from).addScaledVector(dn, len * 0.5);
+    mesh.quaternion.setFromUnitVectors(up, dn);
+    mesh.castShadow = true;
+    group.add(mesh);
+  };
+
+  // Tall trunk — oak splits fairly high
+  const th = 7.5 * scale;
+  addCyl(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, th, 0), 0.20 * scale, 0.36 * scale);
+
+  // 6 main branches spreading wide and low (oak silhouette)
+  const branchDefs = [
+    [0.62,  1.00,  0.42,  0.25, 4.2],
+    [0.60, -0.95,  0.40,  0.18, 4.0],
+    [0.68,  0.18,  0.38, -1.00, 3.8],
+    [0.66, -0.18,  0.42,  0.95, 3.9],
+    [0.58,  0.70,  0.33, -0.60, 3.5],
+    [0.60, -0.65,  0.36,  0.65, 3.4],
+  ];
+
+  const leafCenters = [];
+  for (const [yf, dx, dy, dz, blen] of branchDefs) {
+    const from = new THREE.Vector3(0, th * yf, 0);
+    const dir  = new THREE.Vector3(dx, dy, dz).normalize();
+    const to   = from.clone().addScaledVector(dir, blen * scale);
+    addCyl(from, to, 0.085 * scale, 0.16 * scale);
+    leafCenters.push(to.clone());
+
+    // Two sub-branches per main branch
+    for (let si = 0; si < 2; si++) {
+      const splitT = 0.42 + si * 0.28;
+      const subFrom = from.clone().addScaledVector(dir, blen * scale * splitT);
+      const subDir = new THREE.Vector3(
+        dx + (Math.random() - 0.5 + (si === 0 ? 0.4 : -0.4)) * 0.65,
+        dy + 0.12 + Math.random() * 0.18,
+        dz + (Math.random() - 0.5) * 0.65
+      ).normalize();
+      const subLen = blen * scale * (0.48 + Math.random() * 0.22);
+      const subTo = subFrom.clone().addScaledVector(subDir, subLen);
+      addCyl(subFrom, subTo, 0.040 * scale, 0.085 * scale);
+      leafCenters.push(subTo.clone());
+
+      // Tertiary branch off each sub
+      const terFrom = subFrom.clone().addScaledVector(subDir, subLen * 0.52);
+      const terDir = new THREE.Vector3(
+        subDir.x + (Math.random() - 0.5) * 0.55,
+        subDir.y + 0.08 + Math.random() * 0.12,
+        subDir.z + (Math.random() - 0.5) * 0.55
+      ).normalize();
+      const terTo = terFrom.clone().addScaledVector(terDir, subLen * 0.52);
+      addCyl(terFrom, terTo, 0.018 * scale, 0.040 * scale);
+      leafCenters.push(terTo.clone());
+    }
+  }
+
+  // Dense blocky leaf clusters forming rounded oak canopy
+  const leafMeshesForTree = [];
+  for (let i = 0; i < 46; i++) {
+    const center = leafCenters[i % leafCenters.length];
+    const w = (1.4 + Math.random() * 1.9) * scale;
+    const h = (0.65 + Math.random() * 1.05) * scale;
+    const d = (1.2 + Math.random() * 1.7) * scale;
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), leafMat);
+    leaf.position.set(
+      center.x + (Math.random() - 0.5) * 3.8 * scale,
+      center.y + (Math.random() * 2.2 - 0.5) * scale,
+      center.z + (Math.random() - 0.5) * 3.8 * scale
+    );
+    leaf.rotation.set(
+      (Math.random() - 0.5) * 0.5,
+      Math.random() * Math.PI * 2,
+      (Math.random() - 0.5) * 0.5
+    );
+    leaf.castShadow = true;
+    leaf.receiveShadow = true;
+    group.add(leaf);
+    leafMeshesForTree.push(leaf);
+  }
+
+  scene.add(group);
+  treeLeafMeshes.push(leafMeshesForTree);
+  treeLeafMats.push(leafMat);
+  return group;
+}
+
+createBlockyTree(-11, -10, 1.35);
+createBlockyTree( 11, -15, 1.10);
+createBlockyTree(-19,  -6, 1.45);
 
 /* -----------------------------
    PLANT
