@@ -1129,6 +1129,7 @@ function resetCycle(reuseSameMound = false) {
   cachedLeaves = []; // Clear cached leaves
 
   if (reuseSameMound) {
+    state.planted = true;  // Make sure state is set to planted
     plant.visible = true;
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).color.set("#795641");
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).roughness = 0.95;
@@ -1360,6 +1361,20 @@ function applyWindGust(seed) {
   // Clear the seeds array down to just the active gust seed
   seeds.length = 0;
   seeds.push(seed);
+
+  // Reset the mound to dry state
+  wetness = 0;
+  const dryColor = new THREE.Color("#795641");
+  const mMat = /** @type {THREE.MeshStandardMaterial} */ (activeMound.material);
+  mMat.color.copy(dryColor);
+  mMat.roughness = 0.95;
+
+  // Clear the old plant (stem and leaves)
+  while (plant.children.length > 0) {
+    plant.remove(plant.children[0]);
+  }
+  plant.visible = false;
+  cachedLeaves = [];
 
   // Send clouds drifting back to their original home positions
   cloudsReturning = true;
@@ -1815,16 +1830,21 @@ function updateSeeds(dt, elapsed) {
       const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
       const ctrl = new THREE.Vector3(
-        (seed.peakPos.x + seed.startPos.x) * 0.5,
-        Math.max(seed.peakPos.y, seed.startPos.y) + 8,
-        (seed.peakPos.z + seed.startPos.z) * 0.5 + 3
+        (seed.peakPos.x + activeMound.position.x) * 0.5,
+        Math.max(seed.peakPos.y, activeMound.position.y) + 8,
+        (seed.peakPos.z + activeMound.position.z) * 0.5 + 3
       );
+
+      // Target the top center of the mound
+      const targetX = activeMound.position.x;
+      const targetY = activeMound.position.y + 0.45; // Top of mound
+      const targetZ = activeMound.position.z;
 
       const omt = 1 - eased;
       seed.mesh.position.set(
-        omt * omt * seed.peakPos.x + 2 * omt * eased * ctrl.x + eased * eased * seed.startPos.x,
-        omt * omt * seed.peakPos.y + 2 * omt * eased * ctrl.y + eased * eased * (seed.startPos.y + 0.05),
-        omt * omt * seed.peakPos.z + 2 * omt * eased * ctrl.z + eased * eased * seed.startPos.z
+        omt * omt * seed.peakPos.x + 2 * omt * eased * ctrl.x + eased * eased * targetX,
+        omt * omt * seed.peakPos.y + 2 * omt * eased * ctrl.y + eased * eased * targetY,
+        omt * omt * seed.peakPos.z + 2 * omt * eased * ctrl.z + eased * eased * targetZ
       );
 
       seed.mesh.rotateOnAxis(seed.spinAxis, seed.spinSpeed * 0.28 * dt);
@@ -1848,6 +1868,11 @@ function updateSeeds(dt, elapsed) {
           seasonIndex = (seasonIndex + 1) % SEASONS.length;
           applySeasonTheme(seasonIndex);
           resetCycle(true);
+
+          // Create initial tiny sprout for the new cycle
+          growth = 0.08;
+          updateDandelionDuringRain();
+
           setStatus(`The seed found home! Welcome to ${SEASONS[seasonIndex].name}! Drag the clouds over the mound to water it again.`);
         }, 500);
       }
