@@ -568,30 +568,103 @@ class ProceduralDandelion {
   createYellowFlower() {
     const flowerGroup = new THREE.Group();
 
-    // Don't create center - the brown bud will be the center
+    // Create petals arranged in a hemisphere pattern like real dandelions
+    // Multiple rings at different heights and angles to form a dome/ball shape
 
-    // Create many small petals for realistic look
-    const petalCount = 34; // More petals for fuller look
+    const totalRings = 6; // Number of circular rings from bottom to top
 
-    for (let i = 0; i < petalCount; i++) {
+    for (let ring = 0; ring < totalRings; ring++) {
+      // Calculate position on hemisphere
+      const theta = (ring / (totalRings - 1)) * Math.PI * 0.5; // 0 to 90 degrees (hemisphere)
+      const ringRadius = Math.sin(theta) * 0.18; // Radius decreases as we go up
+      const ringHeight = Math.cos(theta) * 0.1 - 0.05; // Height increases, starting slightly below
+
+      // More petals in lower rings, fewer at top
+      const petalsInRing = Math.floor(30 - ring * 4);
+
+      for (let i = 0; i < petalsInRing; i++) {
+        const petalShape = new THREE.Shape();
+
+        // Petal length varies by position - longer at bottom, shorter at top
+        const petalLength = 0.5 - ring * 0.05; // Further increased
+        const petalWidth = 0.04; // Further increased
+
+        // Create narrow, pointed petal shape
+        petalShape.moveTo(0, 0);
+        petalShape.quadraticCurveTo(petalLength * 0.2, petalWidth * 0.8, petalLength * 0.5, petalWidth * 0.9);
+        petalShape.quadraticCurveTo(petalLength * 0.8, petalWidth * 0.6, petalLength, 0);
+        petalShape.quadraticCurveTo(petalLength * 0.8, -petalWidth * 0.6, petalLength * 0.5, -petalWidth * 0.9);
+        petalShape.quadraticCurveTo(petalLength * 0.2, -petalWidth * 0.8, 0, 0);
+
+        const petalGeo = new THREE.ExtrudeGeometry(petalShape, {
+          depth: 0.002,
+          bevelEnabled: true,
+          bevelThickness: 0.001,
+          bevelSize: 0.0005
+        });
+
+        // Natural yellow color variation
+        const hue = 0.14 + (Math.random() - 0.5) * 0.015;
+        const saturation = 0.95 + Math.random() * 0.05;
+        const lightness = 0.5 + Math.random() * 0.1 + ring * 0.02; // Slightly lighter at top
+
+        const yellowShade = new THREE.Color().setHSL(hue, saturation, lightness);
+        const petalMat = new THREE.MeshStandardMaterial({
+          color: yellowShade,
+          roughness: 0.3,
+          metalness: 0,
+          side: THREE.DoubleSide
+        });
+
+        const petal = new THREE.Mesh(petalGeo, petalMat);
+
+        // Position petal on the ring
+        const angle = (i / petalsInRing) * Math.PI * 2 + (ring % 2) * 0.1; // Offset alternate rings
+
+        petal.position.x = Math.cos(angle) * ringRadius;
+        petal.position.z = Math.sin(angle) * ringRadius;
+        petal.position.y = ringHeight;
+
+        // Point petal outward from center
+        petal.rotation.y = angle;
+
+        // Tilt based on position on hemisphere
+        // Lower petals more horizontal, upper petals more vertical
+        const tiltAngle = theta * 0.7; // Convert position to tilt
+        petal.rotation.z = tiltAngle;
+
+        // Add slight random variations for natural look
+        petal.rotation.x = (Math.random() - 0.5) * 0.05;
+        petal.rotation.z += (Math.random() - 0.5) * 0.1;
+
+        // Slight scale variation
+        petal.scale.setScalar(0.9 + Math.random() * 0.2);
+
+        petal.castShadow = true;
+        flowerGroup.add(petal);
+      }
+    }
+
+    // Add central tuft of petals pointing upward to complete the dome
+    const topTuftCount = 12;
+    for (let i = 0; i < topTuftCount; i++) {
       const petalShape = new THREE.Shape();
 
-      // Elongated petal shape
+      const petalLength = 0.25 + Math.random() * 0.05; // Further increased
+      const petalWidth = 0.035; // Further increased
+
       petalShape.moveTo(0, 0);
-      petalShape.quadraticCurveTo(0.04, 0.15, 0.02, 0.35);
-      petalShape.quadraticCurveTo(0.01, 0.38, 0, 0.4);
-      petalShape.quadraticCurveTo(-0.01, 0.38, -0.02, 0.35);
-      petalShape.quadraticCurveTo(-0.04, 0.15, 0, 0);
+      petalShape.quadraticCurveTo(petalLength * 0.3, petalWidth, petalLength * 0.7, petalWidth * 0.7);
+      petalShape.quadraticCurveTo(petalLength * 0.9, petalWidth * 0.4, petalLength, 0);
+      petalShape.quadraticCurveTo(petalLength * 0.9, -petalWidth * 0.4, petalLength * 0.7, -petalWidth * 0.7);
+      petalShape.quadraticCurveTo(petalLength * 0.3, -petalWidth, 0, 0);
 
       const petalGeo = new THREE.ExtrudeGeometry(petalShape, {
-        depth: 0.005,
-        bevelEnabled: true,
-        bevelThickness: 0.002,
-        bevelSize: 0.001
+        depth: 0.002,
+        bevelEnabled: false
       });
 
-      // Gradient yellow colors
-      const yellowShade = new THREE.Color().setHSL(0.14, 1, 0.5 + Math.random() * 0.15);
+      const yellowShade = new THREE.Color().setHSL(0.14, 1, 0.55 + Math.random() * 0.1);
       const petalMat = new THREE.MeshStandardMaterial({
         color: yellowShade,
         roughness: 0.3,
@@ -600,14 +673,19 @@ class ProceduralDandelion {
       });
 
       const petal = new THREE.Mesh(petalGeo, petalMat);
-      const angle = (i / petalCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.1;
-      const radius = 0.12;
+
+      // Arrange in tight circle at top
+      const angle = (i / topTuftCount) * Math.PI * 2;
+      const radius = Math.random() * 0.02;
 
       petal.position.x = Math.cos(angle) * radius;
       petal.position.z = Math.sin(angle) * radius;
-      petal.rotation.z = angle;
-      petal.rotation.x = (Math.random() - 0.5) * 0.3;
-      petal.scale.setScalar(0.8 + Math.random() * 0.3);
+      petal.position.y = 0.05;
+
+      petal.rotation.y = angle;
+      petal.rotation.z = Math.PI * 0.4 + Math.random() * 0.2; // Near vertical
+
+      petal.scale.setScalar(0.8 + Math.random() * 0.2);
 
       petal.castShadow = true;
       flowerGroup.add(petal);
@@ -644,6 +722,15 @@ class ProceduralDandelion {
       seed.rotateX(Math.random() * 0.3);
       seed.rotateY(Math.random() * Math.PI);
 
+      // Make puff seeds slightly vary in color for more natural look
+      seed.traverse((child) => {
+        if (child.isMesh && child.material && child.material.color) {
+          const hue = 0.14 + (Math.random() - 0.5) * 0.02; // Slight yellow-cream variation
+          const lightness = 0.85 + Math.random() * 0.1;
+          child.material.color.setHSL(hue, 0.15, lightness);
+        }
+      });
+
       puffGroup.add(seed);
     }
 
@@ -656,8 +743,8 @@ class ProceduralDandelion {
     // More realistic seed body
     const seedBodyGeo = new THREE.CapsuleGeometry(0.015, 0.04, 4, 6);
     const seedBodyMat = new THREE.MeshStandardMaterial({
-      color: '#E8DCC0',
-      roughness: 0.9,
+      color: '#D4C4A8', // Slightly darker, more natural seed color
+      roughness: 0.95,
       metalness: 0
     });
 
@@ -710,9 +797,9 @@ class ProceduralDandelion {
     pappusGeo.setAttribute('position', new THREE.Float32BufferAttribute(pappusVertices, 3));
 
     const pappusMat = new THREE.LineBasicMaterial({
-      color: '#FFFFFF',
+      color: '#F5F0E8', // Off-white/cream color instead of pure white
       transparent: true,
-      opacity: 0.8
+      opacity: 0.7 // Slightly more transparent
     });
 
     const pappus = new THREE.LineSegments(pappusGeo, pappusMat);
@@ -1584,12 +1671,12 @@ function updateDandelionDuringRain() {
     bud.scale.setScalar(budScale);
     bud.position.y = stemHeight;
 
-    // Transition color from green to brown as flower approaches
+    // Transition bud to match stem color
     if (growth > 0.25) {
       const colorProgress = (growth - 0.25) / 0.05; // 0 to 1 between growth 0.25 and 0.3
-      const greenColor = new THREE.Color('#b5e88a');
-      const brownColor = new THREE.Color('#8B7355');
-      bud.material.color.lerpColors(greenColor, brownColor, Math.min(1, colorProgress));
+      const lightGreenColor = new THREE.Color('#b5e88a');
+      const stemGreenColor = new THREE.Color('#6ea557'); // Same as stem color
+      bud.material.color.lerpColors(lightGreenColor, stemGreenColor, Math.min(1, colorProgress));
       bud.material.emissive = new THREE.Color('#000000');
       bud.material.emissiveIntensity = 0;
     }
@@ -1654,12 +1741,12 @@ function updateDandelionDuringRain() {
     }
   }
 
-  // Add yellow flower petals around the brown bud center
+  // Add yellow flower petals around the stem-green bud center
   if (growth > 0.3) {
-    // Keep the brown bud as center
+    // Keep the stem-green bud as center
     if (bud) {
-      // Make sure bud is fully brown at this point
-      bud.material.color.set('#8B7355');
+      // Make sure bud matches stem color
+      bud.material.color.set('#6ea557');
       // Flatten the bud slightly to look more like flower center
       bud.scale.set(0.18, 0.08, 0.18);
       bud.position.y = stemHeight;
@@ -1721,9 +1808,9 @@ function updateGrowth(dt) {
   // Transition from yellow flower to white puff
   const transformProgress = (growth - 0.7) / 0.3; // 0 to 1 as growth goes from 0.7 to 1.0
 
-  // Keep the brown bud as flower center
+  // Keep the stem-green bud as flower center
   if (bud && transformProgress < 0.5) {
-    bud.material.color.set('#8B7355');
+    bud.material.color.set('#6ea557');
     bud.scale.set(0.18, 0.08, 0.18);
     bud.position.y = stemHeight;
     if (!bud.parent) {
