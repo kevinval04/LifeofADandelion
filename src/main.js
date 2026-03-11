@@ -59,7 +59,7 @@ scene.add(sunLight.target);
    GROUND / MOUNDS
 ------------------------------ */
 const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(50, 96),
+  new THREE.CircleGeometry(50, 96), // Increased from 38 to 50
   new THREE.MeshStandardMaterial({ color: "#668951", roughness: 0.95, metalness: 0 })
 );
 ground.rotation.x = -Math.PI / 2;
@@ -119,7 +119,7 @@ function addGrass() {
 
   const dummy = new THREE.Object3D();
   for (let i = 0; i < count; i++) {
-    const r = Math.sqrt(Math.random()) * 47;
+    const r = Math.sqrt(Math.random()) * 47; // Increased from 35 to 47 to match larger ground
     const a = Math.random() * Math.PI * 2;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     const exclusion = activeMound.position.distanceTo(new THREE.Vector3(x, activeMound.position.y, z));
@@ -155,6 +155,7 @@ function createFluffyCloud() {
 }
 
 const clouds = [];
+// Store the original spawn positions so we can send clouds home after the gust
 const cloudHomePositions = [];
 
 for (let i = 0; i < 3; i++) {
@@ -166,9 +167,12 @@ for (let i = 0; i < 3; i++) {
   clouds.push(cloud);
 }
 
+// Whether clouds are currently animating back to their home positions
 let cloudsReturning = false;
 
 /**
+ * Gently lerp all clouds back to their original positions each frame.
+ * Called from the render loop while cloudsReturning is true.
  * @param {number} dt
  */
 function updateCloudsReturning(dt) {
@@ -179,6 +183,7 @@ function updateCloudsReturning(dt) {
     if (clouds[i].position.distanceTo(cloudHomePositions[i]) > 0.05) allHome = false;
   }
   if (allHome) {
+    // Snap exactly and stop
     for (let i = 0; i < clouds.length; i++) clouds[i].position.copy(cloudHomePositions[i]);
     cloudsReturning = false;
   }
@@ -212,6 +217,7 @@ scene.add(lightCone);
    RAIN
 ------------------------------ */
 const rainCount = 1200;
+// Each drop = 2 vertices (top + bottom of streak), so 6 floats per drop
 const rainPos = new Float32Array(rainCount * 6);
 const rainVel = new Float32Array(rainCount);
 const rainStreak = new Float32Array(rainCount);
@@ -223,9 +229,11 @@ for (let i = 0; i < rainCount; i++) {
   const len = 0.13 + Math.random() * 0.1;
   rainVel[i] = spd;
   rainStreak[i] = len;
+  // top vertex
   rainPos[i * 6]     = x;
   rainPos[i * 6 + 1] = y;
   rainPos[i * 6 + 2] = z;
+  // bottom vertex (streak below top)
   rainPos[i * 6 + 3] = x;
   rainPos[i * 6 + 4] = y - len;
   rainPos[i * 6 + 5] = z;
@@ -238,6 +246,8 @@ const rain = new THREE.LineSegments(rainGeo, rainMat);
 /* -----------------------------
    SEASONAL SYSTEM
 ------------------------------ */
+
+// Spring flowers — 3 colors, scattered across the field
 const springFlowers = ['#f4a0c0', '#c090e8', '#ffe060'].map(color => {
   const fm = new THREE.InstancedMesh(
     new THREE.CircleGeometry(0.12, 6),
@@ -260,6 +270,7 @@ const springFlowers = ['#f4a0c0', '#c090e8', '#ffe060'].map(color => {
   return fm;
 });
 
+// Spring bees
 const BEE_COUNT = 16;
 const beePositions = new Float32Array(BEE_COUNT * 3);
 const beeData = Array.from({ length: BEE_COUNT }, () => ({
@@ -277,6 +288,7 @@ const beeMat = new THREE.PointsMaterial({ color: '#f8d020', size: 0.14, transpar
 const bees = new THREE.Points(beeGeo, beeMat);
 scene.add(bees);
 
+// Winter ambient snowfall
 const SNOW_COUNT = 700;
 const snowAmbientPos = new Float32Array(SNOW_COUNT * 3);
 const snowAmbientVel = new Float32Array(SNOW_COUNT);
@@ -321,6 +333,7 @@ function applySeasonTheme(idx) {
   beeMat.opacity = isSpring ? 0.95 : 0;
   snowAmbientMat.opacity = isWinter ? 0.75 : 0;
 
+  // Background trees
   for (let t = 0; t < treeLeafMats.length; t++) {
     if (s.treeLeaf === null) {
       for (const m of treeLeafMeshes[t]) m.visible = false;
@@ -329,10 +342,10 @@ function applySeasonTheme(idx) {
       treeLeafMats[t].color.set(s.treeLeaf);
     }
   }
-  updateAudioForSeason(idx);
 }
 
 function updateSeasonalExtras(dt, elapsed) {
+  // Bees (spring)
   if (beeMat.opacity > 0) {
     const bp = beeGeo.attributes.position.array;
     for (let i = 0; i < BEE_COUNT; i++) {
@@ -345,6 +358,7 @@ function updateSeasonalExtras(dt, elapsed) {
     beeGeo.attributes.position.needsUpdate = true;
   }
 
+  // Ambient snow (winter)
   if (snowAmbientMat.opacity > 0) {
     const sp = snowAmbientGeo.attributes.position.array;
     for (let i = 0; i < SNOW_COUNT; i++) {
@@ -359,346 +373,6 @@ function updateSeasonalExtras(dt, elapsed) {
     }
     snowAmbientGeo.attributes.position.needsUpdate = true;
   }
-}
-
-/* -----------------------------
-   AUDIO SYSTEM
------------------------------- */
-let audioCtx = null;
-let audioInitialized = false;
-let masterGainNode = null;
-let windGainNode = null;
-let windFilterNode = null;
-let rainGainNode = null;
-let birdTimer = null;
-
-// Ambient layer nodes
-let beeGainNode = null;
-let iceBellTimer = null;
-let iceBellGainNode = null;
-
-// Music sequencer state
-let musicSchedulerTimer = null;
-let musicMelodyIdx = 0;
-let musicBassIdx = 0;
-let musicNextTime = 0;
-let currentSeasonMusicIdx = -1;
-let musicMelodyGain = null;
-let musicBassGain = null;
-
-const NOTE = {
-  C3:130.81, D3:146.83, E3:164.81, F3:174.61, G3:196.00, A3:220.00, B3:246.94,
-  C4:261.63, D4:293.66, E4:329.63, F4:349.23, G4:392.00, A4:440.00, B4:493.88,
-  C5:523.25, D5:587.33, E5:659.25, G5:783.99, A5:880.00,
-};
-
-const SEASON_MUSIC = [
-  {
-    melodyNotes: [NOTE.E4, NOTE.G4, NOTE.A4, NOTE.G4, NOTE.E4, NOTE.C4, NOTE.D4, NOTE.E4],
-    melodyDurs:  [0.40,   0.40,   0.60,   0.40,   0.40,   0.80,   0.40,   0.80],
-    bassNotes:   [NOTE.C3, NOTE.G3, NOTE.F3, NOTE.G3],
-    bassDurs:    [1.00,    1.00,    1.00,    1.00],
-    melodyWave: 'sine', bassWave: 'sine',
-    melodyGain: 0.095, bassGain: 0.060,
-  },
-  {
-    melodyNotes: [NOTE.A4, NOTE.G4, NOTE.F4, NOTE.E4, NOTE.D4, NOTE.C4, NOTE.D4, NOTE.E4],
-    melodyDurs:  [0.50,   0.50,   0.50,   0.70,   0.50,   0.50,   0.50,   0.80],
-    bassNotes:   [NOTE.A3, NOTE.E3, NOTE.F3, NOTE.E3],
-    bassDurs:    [1.20,    1.20,    1.20,    1.20],
-    melodyWave: 'sine', bassWave: 'sine',
-    melodyGain: 0.085, bassGain: 0.055,
-  },
-  {
-    melodyNotes: [NOTE.D4, 0, NOTE.F4, 0, NOTE.A4, 0, NOTE.G4, NOTE.F4],
-    melodyDurs:  [0.80, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80],
-    bassNotes:   [NOTE.D3, 0, NOTE.A3, 0],
-    bassDurs:    [2.00,  2.00, 2.00, 2.00],
-    melodyWave: 'sine', bassWave: 'sine',
-    melodyGain: 0.075, bassGain: 0.050,
-  },
-  {
-    melodyNotes: [NOTE.G4, NOTE.A4, NOTE.B4, NOTE.A4, NOTE.G4, NOTE.E4, NOTE.D4, NOTE.G4],
-    melodyDurs:  [0.30,   0.30,   0.45,   0.30,   0.30,   0.60,   0.30,   0.60],
-    bassNotes:   [NOTE.G3, NOTE.D3, NOTE.C3, NOTE.D3],
-    bassDurs:    [0.90,    0.90,    0.90,    0.90],
-    melodyWave: 'sine', bassWave: 'sine',
-    melodyGain: 0.090, bassGain: 0.058,
-  },
-];
-
-function initAudio() {
-  if (audioInitialized) return;
-  audioInitialized = true;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-
-  masterGainNode = audioCtx.createGain();
-  masterGainNode.gain.value = 0.28;
-  masterGainNode.connect(audioCtx.destination);
-
-  function makeNoiseBuf(sec = 3) {
-    const buf = audioCtx.createBuffer(2, Math.ceil(audioCtx.sampleRate * sec), audioCtx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      let last = 0;
-      for (let i = 0; i < d.length; i++) {
-        last = (last + (Math.random() * 2 - 1) * 0.08) * 0.98;
-        d[i] = last * 12;
-      }
-    }
-    return buf;
-  }
-
-  function makeWhiteNoiseBuf(sec = 2) {
-    const buf = audioCtx.createBuffer(2, Math.ceil(audioCtx.sampleRate * sec), audioCtx.sampleRate);
-    for (let c = 0; c < 2; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    }
-    return buf;
-  }
-
-  const windSrc = audioCtx.createBufferSource();
-  windSrc.buffer = makeNoiseBuf(4);
-  windSrc.loop = true;
-
-  windFilterNode = audioCtx.createBiquadFilter();
-  windFilterNode.type = 'bandpass';
-  windFilterNode.frequency.value = 380;
-  windFilterNode.Q.value = 0.85;
-
-  const lfo = audioCtx.createOscillator();
-  lfo.frequency.value = 0.07;
-  const lfoAmt = audioCtx.createGain();
-  lfoAmt.gain.value = 70;
-  lfo.connect(lfoAmt);
-  lfoAmt.connect(windFilterNode.frequency);
-  lfo.start();
-
-  windGainNode = audioCtx.createGain();
-  windGainNode.gain.value = 0.005;
-  windSrc.connect(windFilterNode);
-  windFilterNode.connect(windGainNode);
-  windGainNode.connect(masterGainNode);
-  windSrc.start();
-
-  const rainSrc = audioCtx.createBufferSource();
-  rainSrc.buffer = makeWhiteNoiseBuf(2);
-  rainSrc.loop = true;
-
-  const rainHp = audioCtx.createBiquadFilter();
-  rainHp.type = 'highpass';
-  rainHp.frequency.value = 1000;
-  const rainLp = audioCtx.createBiquadFilter();
-  rainLp.type = 'lowpass';
-  rainLp.frequency.value = 7500;
-
-  rainGainNode = audioCtx.createGain();
-  rainGainNode.gain.value = 0;
-  rainSrc.connect(rainHp);
-  rainHp.connect(rainLp);
-  rainLp.connect(rainGainNode);
-  rainGainNode.connect(masterGainNode);
-  rainSrc.start();
-
-  {
-    const beeOsc = audioCtx.createOscillator();
-    beeOsc.type = 'sawtooth';
-    beeOsc.frequency.value = 220;
-    const beeLp = audioCtx.createBiquadFilter();
-    beeLp.type = 'lowpass';
-    beeLp.frequency.value = 600;
-    const beeLfo = audioCtx.createOscillator();
-    beeLfo.frequency.value = 7;
-    const beeLfoGain = audioCtx.createGain();
-    beeLfoGain.gain.value = 18;
-    beeLfo.connect(beeLfoGain);
-    beeLfoGain.connect(beeOsc.detune);
-    beeOsc.connect(beeLp);
-    beeGainNode = audioCtx.createGain();
-    beeGainNode.gain.value = 0;
-    beeLp.connect(beeGainNode);
-    beeGainNode.connect(masterGainNode);
-    beeOsc.start();
-    beeLfo.start();
-  }
-
-  iceBellGainNode = audioCtx.createGain();
-  iceBellGainNode.gain.value = 1.0;
-  iceBellGainNode.connect(masterGainNode);
-
-  musicMelodyGain = audioCtx.createGain();
-  musicMelodyGain.gain.value = 0;
-  musicMelodyGain.connect(masterGainNode);
-  musicBassGain = audioCtx.createGain();
-  musicBassGain.gain.value = 0;
-  musicBassGain.connect(masterGainNode);
-
-  const muteBtn = document.createElement('button');
-  muteBtn.textContent = '🔊';
-  muteBtn.title = 'Toggle sound';
-  muteBtn.style.cssText = `
-    position: fixed; top: 14px; right: 14px;
-    background: rgba(0,0,0,0.35); border: none; border-radius: 50%;
-    width: 38px; height: 38px; font-size: 17px; cursor: pointer;
-    backdrop-filter: blur(6px); color: #fff; line-height: 38px; text-align: center;
-    z-index: 100;
-  `;
-  muteBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (audioCtx.state === 'running') {
-      audioCtx.suspend();
-      muteBtn.textContent = '🔇';
-    } else {
-      audioCtx.resume();
-      muteBtn.textContent = '🔊';
-    }
-  });
-  document.body.appendChild(muteBtn);
-
-  updateAudioForSeason(seasonIndex);
-}
-
-function playMusicNote(freq, time, dur, wave, gainNode, peakGain, attack = 0.04, decay = 0.18) {
-  if (!freq || freq === 0) return;
-  const osc = audioCtx.createOscillator();
-  const env = audioCtx.createGain();
-  osc.type = wave;
-  osc.frequency.value = freq;
-  env.gain.setValueAtTime(0, time);
-  env.gain.linearRampToValueAtTime(peakGain, time + attack);
-  env.gain.setTargetAtTime(0, time + attack, decay);
-  osc.connect(env);
-  env.connect(gainNode);
-  osc.start(time);
-  osc.stop(time + dur + 0.3);
-}
-
-function runMusicScheduler() {
-  if (!audioCtx || currentSeasonMusicIdx < 0) return;
-  const LOOKAHEAD = 0.15;
-  const sm = SEASON_MUSIC[currentSeasonMusicIdx];
-  const now = audioCtx.currentTime;
-
-  while (musicNextTime < now + LOOKAHEAD) {
-    const mFreq = sm.melodyNotes[musicMelodyIdx % sm.melodyNotes.length];
-    const mDur  = sm.melodyDurs[musicMelodyIdx % sm.melodyDurs.length];
-    playMusicNote(mFreq, musicNextTime, mDur, sm.melodyWave, musicMelodyGain, sm.melodyGain);
-    musicMelodyIdx++;
-
-    const bFreq = sm.bassNotes[musicBassIdx % sm.bassNotes.length];
-    const bDur  = sm.bassDurs[musicBassIdx % sm.bassDurs.length];
-    if (musicBassIdx === 0 || musicNextTime >= _musicBassNextTime) {
-      playMusicNote(bFreq, musicNextTime, bDur, sm.bassWave, musicBassGain, sm.bassGain, 0.06, 0.28);
-      _musicBassNextTime = musicNextTime + bDur;
-      musicBassIdx++;
-    }
-
-    musicNextTime += mDur;
-  }
-}
-let _musicBassNextTime = 0;
-
-function startSeasonMusic(idx) {
-  if (!audioCtx) return;
-  if (musicSchedulerTimer) { clearInterval(musicSchedulerTimer); musicSchedulerTimer = null; }
-  if (musicMelodyGain) musicMelodyGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
-  if (musicBassGain)   musicBassGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
-
-  currentSeasonMusicIdx = idx;
-  musicMelodyIdx = 0;
-  musicBassIdx = 0;
-  _musicBassNextTime = 0;
-  musicNextTime = audioCtx.currentTime + 0.6;
-
-  setTimeout(() => {
-    if (!audioCtx) return;
-    musicMelodyGain.gain.setTargetAtTime(1.35, audioCtx.currentTime, 0.6);
-    musicBassGain.gain.setTargetAtTime(1.10, audioCtx.currentTime, 0.6);
-    musicSchedulerTimer = setInterval(runMusicScheduler, 80);
-  }, 700);
-}
-
-function scheduleNextIceBell() {
-  if (!audioCtx || currentSeasonMusicIdx !== 2) return;
-  const bellFreqs = [587.33, 698.46, 880.00, 523.25, 659.25, 1046.50, 783.99];
-  const freq = bellFreqs[Math.floor(Math.random() * bellFreqs.length)];
-  const t = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const env = audioCtx.createGain();
-  osc.type = 'sine';
-  osc.frequency.value = freq;
-  env.gain.setValueAtTime(0, t);
-  env.gain.linearRampToValueAtTime(0.07, t + 0.01);
-  env.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
-  osc.connect(env);
-  env.connect(iceBellGainNode);
-  osc.start(t);
-  osc.stop(t + 2.5);
-  iceBellTimer = setTimeout(scheduleNextIceBell, 2000 + Math.random() * 4000);
-}
-
-function updateAudioForSeason(idx) {
-  if (!audioInitialized || !audioCtx) return;
-  const t = audioCtx.currentTime;
-
-  const windSettings = [
-    { freq: 420, gain: 0.010 },
-    { freq: 255, gain: 0.035 },
-    { freq: 175, gain: 0.040 },
-    { freq: 530, gain: 0.025 },
-  ];
-  const w = windSettings[idx];
-  windFilterNode.frequency.setTargetAtTime(w.freq, t, 0.7);
-  windGainNode.gain.setTargetAtTime(w.gain, t, 0.7);
-
-  if (birdTimer) { clearInterval(birdTimer); birdTimer = null; }
-  if (idx === 0 || idx === 3) {
-    const baseInterval = idx === 3 ? 2200 : 4500;
-    birdTimer = setInterval(() => {
-      if (audioInitialized && audioCtx && audioCtx.state === 'running') {
-        scheduleChirp(idx === 3);
-      }
-    }, baseInterval + Math.random() * 2000);
-  }
-
-  beeGainNode.gain.setTargetAtTime(idx === 3 ? 0.030 : 0, t, 1.2);
-
-  if (iceBellTimer) { clearTimeout(iceBellTimer); iceBellTimer = null; }
-  if (idx === 2) {
-    iceBellTimer = setTimeout(scheduleNextIceBell, 1500 + Math.random() * 3000);
-  }
-
-  startSeasonMusic(idx);
-}
-
-function scheduleChirp(isSpring) {
-  if (!audioCtx || !masterGainNode) return;
-  const t = audioCtx.currentTime;
-  const count = isSpring ? 2 + Math.floor(Math.random() * 3) : 1 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < count; i++) {
-    const delay = i * (0.10 + Math.random() * 0.13);
-    const base = 1500 + Math.random() * 1000;
-    const osc = audioCtx.createOscillator();
-    const env = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(base, t + delay);
-    osc.frequency.exponentialRampToValueAtTime(base * 1.38, t + delay + 0.07);
-    osc.frequency.exponentialRampToValueAtTime(base * 1.05, t + delay + 0.14);
-    env.gain.setValueAtTime(0, t + delay);
-    env.gain.linearRampToValueAtTime(0.055, t + delay + 0.025);
-    env.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.18);
-    osc.connect(env);
-    env.connect(masterGainNode);
-    osc.start(t + delay);
-    osc.stop(t + delay + 0.22);
-  }
-}
-
-function setRainSound(active) {
-  if (!audioInitialized || !audioCtx) return;
-  rainGainNode.gain.setTargetAtTime(active ? 0.20 : 0, audioCtx.currentTime, 0.9);
 }
 
 /* -----------------------------
@@ -724,9 +398,11 @@ function createBlockyTree(x, z, scale) {
     group.add(mesh);
   };
 
+  // Tall trunk — oak splits fairly high
   const th = 7.5 * scale;
   addCyl(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, th, 0), 0.20 * scale, 0.36 * scale);
 
+  // 6 main branches spreading wide and low (oak silhouette)
   const branchDefs = [
     [0.62,  1.00,  0.42,  0.25, 4.2],
     [0.60, -0.95,  0.40,  0.18, 4.0],
@@ -744,6 +420,7 @@ function createBlockyTree(x, z, scale) {
     addCyl(from, to, 0.085 * scale, 0.16 * scale);
     leafCenters.push(to.clone());
 
+    // Two sub-branches per main branch
     for (let si = 0; si < 2; si++) {
       const splitT = 0.42 + si * 0.28;
       const subFrom = from.clone().addScaledVector(dir, blen * scale * splitT);
@@ -757,6 +434,7 @@ function createBlockyTree(x, z, scale) {
       addCyl(subFrom, subTo, 0.040 * scale, 0.085 * scale);
       leafCenters.push(subTo.clone());
 
+      // Tertiary branch off each sub
       const terFrom = subFrom.clone().addScaledVector(subDir, subLen * 0.52);
       const terDir = new THREE.Vector3(
         subDir.x + (Math.random() - 0.5) * 0.55,
@@ -769,6 +447,7 @@ function createBlockyTree(x, z, scale) {
     }
   }
 
+  // Dense blocky leaf clusters forming rounded oak canopy
   const leafMeshesForTree = [];
   for (let i = 0; i < 46; i++) {
     const center = leafCenters[i % leafCenters.length];
@@ -811,24 +490,31 @@ class ProceduralDandelion {
     this.leafMaterial = this.createLeafMaterial();
   }
 
+  // Create realistic jagged dandelion leaf
   createRealisticLeaf() {
     const leafShape = new THREE.Shape();
+
+    // Create characteristic dandelion jagged leaf shape
     leafShape.moveTo(0, 0);
 
+    // Left side with deep serrations
     const leftPoints = [
       { x: -0.02, y: 0.1 }, { x: -0.08, y: 0.15 }, { x: -0.05, y: 0.2 },
       { x: -0.12, y: 0.3 }, { x: -0.06, y: 0.35 }, { x: -0.15, y: 0.45 },
       { x: -0.07, y: 0.5 }, { x: -0.13, y: 0.6 }, { x: -0.05, y: 0.65 },
       { x: -0.08, y: 0.75 }, { x: -0.02, y: 0.85 }, { x: 0, y: 1.0 }
     ];
+
     leftPoints.forEach(p => leafShape.lineTo(p.x, p.y));
 
+    // Right side (mirror with variation)
     const rightPoints = [
       { x: 0.02, y: 0.85 }, { x: 0.07, y: 0.75 }, { x: 0.04, y: 0.65 },
       { x: 0.11, y: 0.6 }, { x: 0.06, y: 0.5 }, { x: 0.14, y: 0.45 },
       { x: 0.05, y: 0.35 }, { x: 0.10, y: 0.3 }, { x: 0.04, y: 0.2 },
       { x: 0.07, y: 0.15 }, { x: 0.02, y: 0.1 }, { x: 0, y: 0 }
     ];
+
     rightPoints.forEach(p => leafShape.lineTo(p.x, p.y));
 
     const leafGeo = new THREE.ExtrudeGeometry(leafShape, {
@@ -839,11 +525,13 @@ class ProceduralDandelion {
       bevelSegments: 2
     });
 
+    // Add natural curve to leaf
     const positions = leafGeo.attributes.position;
     for (let i = 0; i < positions.count; i++) {
       const y = positions.getY(i);
       const bend = Math.sin(y * 3) * 0.02;
       positions.setZ(i, positions.getZ(i) + bend);
+      // Add slight fold along center
       const x = positions.getX(i);
       positions.setY(i, positions.getY(i) + Math.abs(x) * 0.1);
     }
@@ -852,9 +540,10 @@ class ProceduralDandelion {
     return leafGeo;
   }
 
+  // Create curved, natural-looking stem
   createAdvancedStem(height = 1.5) {
     const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, 0), // Start from ground level (0, not negative)
       new THREE.Vector3(0.01, height * 0.25, 0.005),
       new THREE.Vector3(-0.008, height * 0.5, 0.01),
       new THREE.Vector3(0.005, height * 0.75, -0.005),
@@ -863,6 +552,7 @@ class ProceduralDandelion {
 
     const stemGeo = new THREE.TubeGeometry(curve, 20, 0.035, 8, false);
 
+    // Add subtle variations to make it less perfect
     const positions = stemGeo.attributes.position;
     for (let i = 0; i < positions.count; i++) {
       const y = positions.getY(i);
@@ -874,21 +564,32 @@ class ProceduralDandelion {
     return stemGeo;
   }
 
+  // Create detailed yellow flower with many petals (NO CENTER - will use existing bud)
   createYellowFlower() {
     const flowerGroup = new THREE.Group();
-    const totalRings = 6;
+
+    // Create petals arranged in a hemisphere pattern like real dandelions
+    // Multiple rings at different heights and angles to form a dome/ball shape
+
+    const totalRings = 6; // Number of circular rings from bottom to top
 
     for (let ring = 0; ring < totalRings; ring++) {
-      const theta = (ring / (totalRings - 1)) * Math.PI * 0.5;
-      const ringRadius = Math.sin(theta) * 0.18;
-      const ringHeight = Math.cos(theta) * 0.1 - 0.05;
+      // Calculate position on hemisphere
+      const theta = (ring / (totalRings - 1)) * Math.PI * 0.5; // 0 to 90 degrees (hemisphere)
+      const ringRadius = Math.sin(theta) * 0.18; // Radius decreases as we go up
+      const ringHeight = Math.cos(theta) * 0.1 - 0.05; // Height increases, starting slightly below
+
+      // More petals in lower rings, fewer at top
       const petalsInRing = Math.floor(30 - ring * 4);
 
       for (let i = 0; i < petalsInRing; i++) {
         const petalShape = new THREE.Shape();
-        const petalLength = 0.5 - ring * 0.05;
-        const petalWidth = 0.04;
 
+        // Petal length varies by position - longer at bottom, shorter at top
+        const petalLength = 0.5 - ring * 0.05; // Further increased
+        const petalWidth = 0.04; // Further increased
+
+        // Create narrow, pointed petal shape
         petalShape.moveTo(0, 0);
         petalShape.quadraticCurveTo(petalLength * 0.2, petalWidth * 0.8, petalLength * 0.5, petalWidth * 0.9);
         petalShape.quadraticCurveTo(petalLength * 0.8, petalWidth * 0.6, petalLength, 0);
@@ -902,9 +603,10 @@ class ProceduralDandelion {
           bevelSize: 0.0005
         });
 
+        // Natural yellow color variation
         const hue = 0.14 + (Math.random() - 0.5) * 0.015;
         const saturation = 0.95 + Math.random() * 0.05;
-        const lightness = 0.5 + Math.random() * 0.1 + ring * 0.02;
+        const lightness = 0.5 + Math.random() * 0.1 + ring * 0.02; // Slightly lighter at top
 
         const yellowShade = new THREE.Color().setHSL(hue, saturation, lightness);
         const petalMat = new THREE.MeshStandardMaterial({
@@ -915,29 +617,41 @@ class ProceduralDandelion {
         });
 
         const petal = new THREE.Mesh(petalGeo, petalMat);
-        const angle = (i / petalsInRing) * Math.PI * 2 + (ring % 2) * 0.1;
+
+        // Position petal on the ring
+        const angle = (i / petalsInRing) * Math.PI * 2 + (ring % 2) * 0.1; // Offset alternate rings
 
         petal.position.x = Math.cos(angle) * ringRadius;
         petal.position.z = Math.sin(angle) * ringRadius;
         petal.position.y = ringHeight;
 
+        // Point petal outward from center
         petal.rotation.y = angle;
-        const tiltAngle = theta * 0.7;
+
+        // Tilt based on position on hemisphere
+        // Lower petals more horizontal, upper petals more vertical
+        const tiltAngle = theta * 0.7; // Convert position to tilt
         petal.rotation.z = tiltAngle;
+
+        // Add slight random variations for natural look
         petal.rotation.x = (Math.random() - 0.5) * 0.05;
         petal.rotation.z += (Math.random() - 0.5) * 0.1;
 
+        // Slight scale variation
         petal.scale.setScalar(0.9 + Math.random() * 0.2);
+
         petal.castShadow = true;
         flowerGroup.add(petal);
       }
     }
 
+    // Add central tuft of petals pointing upward to complete the dome
     const topTuftCount = 12;
     for (let i = 0; i < topTuftCount; i++) {
       const petalShape = new THREE.Shape();
-      const petalLength = 0.25 + Math.random() * 0.05;
-      const petalWidth = 0.035;
+
+      const petalLength = 0.25 + Math.random() * 0.05; // Further increased
+      const petalWidth = 0.035; // Further increased
 
       petalShape.moveTo(0, 0);
       petalShape.quadraticCurveTo(petalLength * 0.3, petalWidth, petalLength * 0.7, petalWidth * 0.7);
@@ -959,6 +673,8 @@ class ProceduralDandelion {
       });
 
       const petal = new THREE.Mesh(petalGeo, petalMat);
+
+      // Arrange in tight circle at top
       const angle = (i / topTuftCount) * Math.PI * 2;
       const radius = Math.random() * 0.02;
 
@@ -967,8 +683,10 @@ class ProceduralDandelion {
       petal.position.y = 0.05;
 
       petal.rotation.y = angle;
-      petal.rotation.z = Math.PI * 0.4 + Math.random() * 0.2;
+      petal.rotation.z = Math.PI * 0.4 + Math.random() * 0.2; // Near vertical
+
       petal.scale.setScalar(0.8 + Math.random() * 0.2);
+
       petal.castShadow = true;
       flowerGroup.add(petal);
     }
@@ -976,9 +694,12 @@ class ProceduralDandelion {
     return flowerGroup;
   }
 
+  // Create ultra-detailed puff ball
   createAdvancedPuffBall() {
     const puffGroup = new THREE.Group();
-    const seedCount = 140;
+    const seedCount = 140; // More seeds for denser look
+
+    // Use golden ratio for natural distribution
     const goldenRatio = (1 + Math.sqrt(5)) / 2;
     const angleIncrement = Math.PI * 2 * goldenRatio;
 
@@ -988,7 +709,7 @@ class ProceduralDandelion {
       const azimuth = angleIncrement * i;
 
       const seed = this.createDetailedSeed();
-      const radius = 0.22 + Math.random() * 0.05;
+      const radius = 0.22 + Math.random() * 0.05; // SMALLER RADIUS for better proportion
 
       seed.position.set(
         radius * Math.sin(inclination) * Math.cos(azimuth),
@@ -996,13 +717,15 @@ class ProceduralDandelion {
         radius * Math.sin(inclination) * Math.sin(azimuth)
       );
 
+      // Point seed outward
       seed.lookAt(seed.position.clone().multiplyScalar(2));
       seed.rotateX(Math.random() * 0.3);
       seed.rotateY(Math.random() * Math.PI);
 
+      // Make puff seeds slightly vary in color for more natural look
       seed.traverse((child) => {
         if (child.isMesh && child.material && child.material.color) {
-          const hue = 0.14 + (Math.random() - 0.5) * 0.02;
+          const hue = 0.14 + (Math.random() - 0.5) * 0.02; // Slight yellow-cream variation
           const lightness = 0.85 + Math.random() * 0.1;
           child.material.color.setHSL(hue, 0.15, lightness);
         }
@@ -1017,9 +740,10 @@ class ProceduralDandelion {
   createDetailedSeed() {
     const seedGroup = new THREE.Group();
 
+    // More realistic seed body
     const seedBodyGeo = new THREE.CapsuleGeometry(0.015, 0.04, 4, 6);
     const seedBodyMat = new THREE.MeshStandardMaterial({
-      color: '#D4C4A8',
+      color: '#D4C4A8', // Slightly darker, more natural seed color
       roughness: 0.95,
       metalness: 0
     });
@@ -1028,12 +752,9 @@ class ProceduralDandelion {
     seedBody.castShadow = true;
     seedGroup.add(seedBody);
 
-    const hitBoxGeo = new THREE.SphereGeometry(0.25, 8, 8);
-    const hitBoxMat = new THREE.MeshBasicMaterial({ visible: false });
-    const hitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
-    hitBox.userData.isHitBox = true;
-    seedGroup.add(hitBox);
+    // Don't add invisible hit box - use actual geometry for precise selection
 
+    // Create pappus (umbrella) with thin lines
     const pappusGeo = new THREE.BufferGeometry();
     const pappusVertices = [];
     const filamentCount = 24;
@@ -1042,6 +763,7 @@ class ProceduralDandelion {
       const angle = (i / filamentCount) * Math.PI * 2;
       const length = 0.12 + Math.random() * 0.03;
 
+      // Create curved filament path
       const curve = new THREE.CatmullRomCurve3([
         new THREE.Vector3(0, 0.02, 0),
         new THREE.Vector3(
@@ -1068,32 +790,36 @@ class ProceduralDandelion {
     pappusGeo.setAttribute('position', new THREE.Float32BufferAttribute(pappusVertices, 3));
 
     const pappusMat = new THREE.LineBasicMaterial({
-      color: '#F5F0E8',
+      color: '#F5F0E8', // Off-white/cream color instead of pure white
       transparent: true,
-      opacity: 0.7
+      opacity: 0.7 // Slightly more transparent
     });
 
     const pappus = new THREE.LineSegments(pappusGeo, pappusMat);
     seedGroup.add(pappus);
+
     seedGroup.userData.type = 'puffSeed';
     return seedGroup;
   }
 
+  // Custom leaf material with subsurface effect
   createLeafMaterial() {
     return new THREE.MeshStandardMaterial({
       color: '#7bb05a',
       roughness: 0.8,
       metalness: 0.1,
       side: THREE.DoubleSide,
-      transparent: false,
+      transparent: false, // Changed to false to prevent transparency issues
       opacity: 1
     });
   }
 
+  // Assemble complete dandelion
   assembleDandelion(growthStage = 0) {
     const dandelion = new THREE.Group();
 
-    const stemHeight = 0.2 + growthStage * 1.6;
+    // Always add stem (grows with plant) - TALLER STEM
+    const stemHeight = 0.2 + growthStage * 1.6; // Increased for taller stem
     const stem = new THREE.Mesh(
       this.createAdvancedStem(stemHeight),
       new THREE.MeshStandardMaterial({
@@ -1105,7 +831,9 @@ class ProceduralDandelion {
     stem.castShadow = true;
     dandelion.add(stem);
 
+    // Show tiny initial bud right away
     if (growthStage <= 0.15) {
+      // Create small initial sprout/bud - VERY visible
       const initialBud = new THREE.Mesh(
         new THREE.SphereGeometry(0.08 + growthStage * 0.4, 16, 16),
         new THREE.MeshStandardMaterial({
@@ -1121,7 +849,9 @@ class ProceduralDandelion {
       dandelion.add(initialBud);
     }
 
+    // Add leaves if past seedling stage
     if (growthStage > 0.1) {
+      // Only create 2 leaves
       const leafCount = growthStage >= 0.2 ? 2 : Math.min(2, Math.round(growthStage * 10));
       for (let i = 0; i < leafCount; i++) {
         const leaf = new THREE.Mesh(
@@ -1129,21 +859,23 @@ class ProceduralDandelion {
           this.leafMaterial.clone()
         );
 
-        const angle = i * Math.PI + Math.PI / 4;
-        const distance = 0.05;
+        // Position leaves to connect at stem base
+        const angle = i * Math.PI + Math.PI/4; // Offset 45 degrees for better visibility
+        const distance = 0.05; // Much closer to stem base
 
         leaf.position.set(
           Math.cos(angle) * distance,
-          0.02,
+          0.02, // Lower, closer to ground where stem starts
           Math.sin(angle) * distance
         );
 
+        // Rotate leaves to spread outward from stem
         leaf.rotation.y = angle;
-        leaf.rotation.z = 0.4 + (i * 0.15);
-        leaf.rotation.x = -0.3;
+        leaf.rotation.z = 0.4 + (i * 0.15); // More tilt to lay flatter
+        leaf.rotation.x = -0.3; // Angle down more
 
         const leafScale = 0.3 + Math.min(growthStage, 1) * 0.5;
-        leaf.scale.setScalar(leafScale * (0.9 + (i % 2) * 0.2));
+        leaf.scale.setScalar(leafScale * (0.9 + (i % 2) * 0.2)); // Fixed size variation
 
         leaf.castShadow = true;
         leaf.receiveShadow = true;
@@ -1155,26 +887,31 @@ class ProceduralDandelion {
   }
 }
 
+// Initialize procedural dandelion system
 const dandelionSystem = new ProceduralDandelion();
 
+// Create plant group that will hold different growth stages
 const plant = new THREE.Group();
+// Position plant on top of mound initially
+// Mound is at y=0.45 with height 0.9, so top is at 0.45 + 0.45 = 0.9
 plant.position.set(
   activeMound.position.x,
-  activeMound.position.y + 0.45,
+  activeMound.position.y + 0.45, // This puts plant at y=0.9 (top of mound)
   activeMound.position.z
 );
 plant.visible = false;
 scene.add(plant);
 
+// These will be created dynamically during growth
 let stem = null;
 let bud = null;
 let yellowFlower = null;
 let puff = null;
-let cachedLeaves = [];
+let cachedLeaves = []; // Cache leaves to prevent recreation
 
 /* ==============================================
    WIND VISUAL SYSTEM
-============================================== */
+   ============================================== */
 
 const WIND_POOL_SIZE = 80;
 /** @typedef {{tube: THREE.Mesh, life: number, maxLife: number, vel: THREE.Vector3, mat: THREE.MeshBasicMaterial}} WindRibbon */
@@ -1301,9 +1038,12 @@ function updateWindVisuals(dt, elapsed, seedPos) {
 
   const shader = grass.material.userData.shader;
   if (shader) {
+    // Store previous time value to maintain continuity
     if (grass.material.userData.prevTime === undefined) {
       grass.material.userData.prevTime = elapsed;
     }
+
+    // Use a continuous time that doesn't jump
     const smoothTime = grass.material.userData.prevTime + dt;
     grass.material.userData.prevTime = smoothTime;
 
@@ -1352,7 +1092,7 @@ function updateWindVisuals(dt, elapsed, seedPos) {
 
 /* ==============================================
    SEEDS
-============================================== */
+   ============================================== */
 /**
  * @typedef {{
  *   mesh: THREE.Mesh,
@@ -1374,6 +1114,7 @@ function updateWindVisuals(dt, elapsed, seedPos) {
 const seeds = [];
 
 const tmpV3 = new THREE.Vector3();
+
 const dragOffset = new THREE.Vector3();
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -8.5);
 
@@ -1446,27 +1187,29 @@ function resetCycle(reuseSameMound = false) {
   windGust.active = false;
   windGust.applied = false;
   rainMat.opacity = 0;
-  setRainSound(false);
 
+  // Clear all plant children
   while (plant.children.length > 0) {
     plant.remove(plant.children[0]);
   }
 
   plant.visible = false;
+  // Keep plant on top of mound
   plant.position.set(
     activeMound.position.x,
     activeMound.position.y + 0.45,
     activeMound.position.z
   );
 
+  // Reset procedural elements
   stem = null;
   bud = null;
   yellowFlower = null;
   puff = null;
-  cachedLeaves = [];
+  cachedLeaves = []; // Clear cached leaves
 
   if (reuseSameMound) {
-    state.planted = true;
+    state.planted = true;  // Make sure state is set to planted
     plant.visible = true;
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).color.set("#795641");
     /** @type {THREE.MeshStandardMaterial} */ (activeMound.material).roughness = 0.95;
@@ -1478,7 +1221,6 @@ function startRain(cloudList = null) {
   rainActive = true;
   rainClouds = cloudList;
   scene.add(rain);
-  setRainSound(true);
   if (cloudList) setStatus("Rain started! Move clouds over the mound to water it.");
 }
 
@@ -1487,6 +1229,9 @@ function toNdc(event) {
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
 }
 
+/* -----------------------------
+   SELECT / DESELECT
+------------------------------ */
 function selectSeed(seed) {
   selectedSeed = seed;
   windGust.active = true;
@@ -1510,15 +1255,21 @@ function deselectSeed() {
    INPUT
 ------------------------------ */
 window.addEventListener("pointerdown", (event) => {
-  initAudio();
   toNdc(event);
   raycaster.setFromCamera(pointer, camera);
 
+  // Build list of clickable objects
+  // Seeds are now groups, so we need to include them properly
   const clickables = [activeMound, sun, ...clouds];
+
+  // Add all seed groups to clickables (remove landed requirement to allow clicking while falling)
   seeds.forEach(s => {
-    if (s.mesh) clickables.push(s.mesh);
+    if (s.mesh) {
+      clickables.push(s.mesh);
+    }
   });
 
+  // Add puff/bud if it exists
   if (puff && state.puff) {
     clickables.push(puff);
   } else if (bud) {
@@ -1528,6 +1279,58 @@ window.addEventListener("pointerdown", (event) => {
   const hits = raycaster.intersectObjects(clickables, true);
   if (!hits.length) return;
 
+  // Collect all seeds that were hit
+  const hitSeeds = [];
+  for (const hit of hits) {
+    const target = hit.object;
+    const foundSeed = seeds.find(s => {
+      let checkParent = target;
+      while (checkParent) {
+        if (checkParent === s.mesh) return true;
+        if (checkParent.userData && checkParent.userData.type === 'puffSeed') {
+          return s.mesh === checkParent;
+        }
+        checkParent = checkParent.parent;
+      }
+      return false;
+    });
+
+    if (foundSeed && !hitSeeds.includes(foundSeed)) {
+      hitSeeds.push({ seed: foundSeed, distance: hit.distance });
+    }
+  }
+
+  // If we hit multiple seeds, pick the one closest to the mouse pointer in screen space
+  let pickedSeed = null;
+  if (hitSeeds.length > 0) {
+    if (hitSeeds.length === 1) {
+      pickedSeed = hitSeeds[0].seed;
+    } else {
+      // Find seed closest to mouse in screen space
+      let minScreenDist = Infinity;
+      for (const { seed } of hitSeeds) {
+        const screenPos = seed.mesh.position.clone().project(camera);
+        const screenDist = Math.sqrt(
+          Math.pow(screenPos.x - pointer.x, 2) +
+          Math.pow(screenPos.y - pointer.y, 2)
+        );
+        if (screenDist < minScreenDist) {
+          minScreenDist = screenDist;
+          pickedSeed = seed;
+        }
+      }
+    }
+  }
+
+  if (pickedSeed) {
+    // Allow clicking on seeds while falling or after landing
+    if (pickedSeed.phase === 'normal' && !pickedSeed.gustApplied) {
+      selectedSeed === pickedSeed ? deselectSeed() : selectSeed(pickedSeed);
+    }
+    return;
+  }
+
+  // If no seed was hit, check other objects
   const target = hits[0].object;
 
   if (target.userData.type === "cloud" || target.parent?.userData.type === "cloud" ||
@@ -1550,13 +1353,17 @@ window.addEventListener("pointerdown", (event) => {
     state.planted = true;
     plant.visible = true;
 
+    // Position plant on TOP of mound
     plant.position.set(
       activeMound.position.x,
-      activeMound.position.y + 0.45,
+      activeMound.position.y + 0.45, // Place on top of mound (y=0.9)
       activeMound.position.z
     );
 
+    // Create initial tiny sprout
     growth = 0.08;
+
+    // Use the rain update function to create initial sprout with cached leaves
     updateDandelionDuringRain();
 
     setStatus("Great. Make it rain by dragging the clouds together over the mound, and then clicking a cloud to make it rain!");
@@ -1570,26 +1377,9 @@ window.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  const pickedSeed = seeds.find(s => {
-    let checkParent = target;
-    while (checkParent) {
-      if (checkParent === s.mesh) return true;
-      if (checkParent.userData && checkParent.userData.type === 'puffSeed') {
-        return s.mesh === checkParent;
-      }
-      checkParent = checkParent.parent;
-    }
-    return false;
-  });
-
-  if (pickedSeed) {
-    if (pickedSeed.phase === 'normal' && !pickedSeed.gustApplied) {
-      selectedSeed === pickedSeed ? deselectSeed() : selectSeed(pickedSeed);
-    }
-    return;
-  }
-
+  // Check if clicking on the puff ball
   if (state.puff && puff) {
+    // Check if the clicked object is part of the puff group
     let checkParent = target;
     while (checkParent) {
       if (checkParent === puff) {
@@ -1600,6 +1390,7 @@ window.addEventListener("pointerdown", (event) => {
     }
   }
 });
+
 
 window.addEventListener("pointerup", () => {
   dragging = null;
@@ -1647,7 +1438,7 @@ window.addEventListener("pointermove", (event) => {
 
 /* ==============================================
    APPLY WIND GUST
-============================================== */
+   ============================================== */
 function applyWindGust(seed) {
   windGust.applied = true;
   seed.gustApplied = true;
@@ -1668,27 +1459,33 @@ function applyWindGust(seed) {
 
   triggerGustVisuals(seed.mesh.position.clone());
 
+  // --- While the seed is out of view, clean up the scene ---
+  // Remove all OTHER seeds (not the gust seed) from the scene
   for (const s of seeds) {
     if (s === seed) continue;
     scene.remove(s.mesh);
     s.active = false;
-    s.landed = true;
+    s.landed = true; // prevent further updates
   }
+  // Clear the seeds array down to just the active gust seed
   seeds.length = 0;
   seeds.push(seed);
 
+  // Reset the mound to dry state
   wetness = 0;
   const dryColor = new THREE.Color("#795641");
   const mMat = /** @type {THREE.MeshStandardMaterial} */ (activeMound.material);
   mMat.color.copy(dryColor);
   mMat.roughness = 0.95;
 
+  // Clear the old plant (stem and leaves)
   while (plant.children.length > 0) {
     plant.remove(plant.children[0]);
   }
   plant.visible = false;
   cachedLeaves = [];
 
+  // Send clouds drifting back to their original home positions
   cloudsReturning = true;
 
   followedSeed = seed;
@@ -1703,13 +1500,16 @@ function disperseSeeds() {
   if (!state.puff) return;
   state.puff = false;
 
+  // Hide puff
   if (puff && puff.parent) {
     plant.remove(puff);
   }
 
-  const seedCount = 45;
+  // Create detailed seeds with parachutes
+  const seedCount = 45; // More seeds for realistic dispersal
 
   for (let i = 0; i < seedCount; i++) {
+    // Use the procedural seed creation for realistic seeds
     const seedMesh = dandelionSystem.createDetailedSeed();
     seedMesh.scale.setScalar(0.7 + Math.random() * 0.3);
     seedMesh.userData.type = "seed";
@@ -1717,22 +1517,25 @@ function disperseSeeds() {
 
     const ang = Math.random() * Math.PI * 2;
     const rad = 0.25 + Math.random() * 0.3;
-    const stemHeight = 0.2 + 0.7 * 1.6;
-    const startHeight = stemHeight + 0.1;
+    // Fix: Use stem height instead of adding to plant.position.y
+    const stemHeight = 0.2 + 0.7 * 1.6; // Full grown stem height
+    const startHeight = stemHeight + 0.1; // Just above the puff position
     seedMesh.position.set(
       plant.position.x + Math.cos(ang) * rad,
       plant.position.y + startHeight,
       plant.position.z + Math.sin(ang) * rad
     );
 
-    const upDraft = 0.05 + Math.random() * 0.1;
-    const horizontalSpread = 0.15 + Math.random() * 0.1;
+    // More realistic dispersal velocities - less spread to land on mound
+    const upDraft = 0.05 + Math.random() * 0.1; // Reduced updraft
+    const horizontalSpread = 0.15 + Math.random() * 0.1; // Much less horizontal spread
     const baseVel = new THREE.Vector3(
       (Math.random() - 0.5) * horizontalSpread,
       upDraft - Math.random() * 0.1,
       (Math.random() - 0.5) * horizontalSpread
     );
 
+    // Gentle outward push from center
     const gDir = new THREE.Vector3(
       Math.cos(ang) * 0.1,
       0,
@@ -1756,9 +1559,11 @@ function disperseSeeds() {
     });
   }
 
+  // Keep stem and leaves after seed dispersal
   while (plant.children.length > 0) {
     plant.remove(plant.children[0]);
   }
+  // Show full grown stem and leaves (0.7 keeps all leaves visible)
   const finalDandelion = dandelionSystem.assembleDandelion(0.7);
   plant.add(finalDandelion);
 
@@ -1767,7 +1572,7 @@ function disperseSeeds() {
 
 /* ==============================================
    UPDATE RAIN
-============================================== */
+   ============================================== */
 function updateRain(dt, elapsed) {
   if (rainActive) {
     let spawnCX = activeMound.position.x, spawnCZ = activeMound.position.z;
@@ -1789,8 +1594,11 @@ function updateRain(dt, elapsed) {
       wetness = Math.min(1, wetness + dt * 0.25);
       rainMat.opacity = Math.min(0.9, wetness);
 
+      // GROW YELLOW FLOWER DURING RAIN
       if (state.planted && !state.watered) {
-        growth = Math.min(0.7, growth + dt * 0.18);
+        growth = Math.min(0.7, growth + dt * 0.18); // Grow to 70% during rain
+
+        // Update every frame for smooth growth
         updateDandelionDuringRain();
 
         if (wetness < 1) setStatus("The plant is growing! Keep watering!");
@@ -1807,12 +1615,16 @@ function updateRain(dt, elapsed) {
 
     const pos = /** @type {Float32Array} */ (rain.geometry.attributes.position.array);
     for (let i = 0; i < rainCount; i++) {
+      // Move top vertex straight down
       pos[i * 6 + 1] -= rainVel[i] * dt;
+      // Respawn when drop soaks into the ground
       if (pos[i * 6 + 1] < -0.3) {
         pos[i * 6]     = spawnCX + (Math.random() - 0.5) * 2.8;
         pos[i * 6 + 1] = 10 + Math.random() * 2;
+        // Bias z slightly toward camera so more drops land on the visible mound face
         pos[i * 6 + 2] = spawnCZ + (Math.random() - 0.5) * 2.0 + 0.7;
       }
+      // Bottom vertex directly below top
       const len = rainStreak[i];
       pos[i * 6 + 3] = pos[i * 6];
       pos[i * 6 + 4] = pos[i * 6 + 1] - len;
@@ -1831,14 +1643,16 @@ function updateRain(dt, elapsed) {
     state.watered = true;
     rainActive = false;
     scene.remove(rain);
-    setRainSound(false);
+    // Ensure growth is exactly 0.7 when rain completes
     growth = 0.7;
-    updateDandelionDuringRain();
+    updateDandelionDuringRain(); // Final update with full growth
     setStatus("Beautiful yellow flower! Now click the sun to transform it to a puff.");
   }
 }
 
+// New function to update dandelion during rain
 function updateDandelionDuringRain() {
+  // Clear only non-leaf children (but keep bud if it exists)
   const children = [...plant.children];
   for (const child of children) {
     if (!cachedLeaves.includes(child) && child !== bud) {
@@ -1846,7 +1660,8 @@ function updateDandelionDuringRain() {
     }
   }
 
-  const stemHeight = 0.2 + growth * 1.6;
+  // Create stem (always recreate for smooth growth)
+  const stemHeight = 0.2 + growth * 1.6; // Match the taller stem height
   const newStem = new THREE.Mesh(
     dandelionSystem.createAdvancedStem(stemHeight),
     new THREE.MeshStandardMaterial({
@@ -1858,10 +1673,12 @@ function updateDandelionDuringRain() {
   newStem.castShadow = true;
   plant.add(newStem);
 
+  // Bud that transitions from green to brown as flower approaches
   if (!yellowFlower) {
     if (!bud) {
+      // Create bud only once
       bud = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 16, 16),
+        new THREE.SphereGeometry(1, 16, 16), // Start with unit sphere, will scale
         new THREE.MeshStandardMaterial({
           color: '#b5e88a',
           roughness: 0.9,
@@ -1871,14 +1688,16 @@ function updateDandelionDuringRain() {
       bud.castShadow = true;
     }
 
+    // Scale bud based on growth
     const budScale = 0.06 + growth * 0.4;
     bud.scale.setScalar(budScale);
     bud.position.y = stemHeight;
 
+    // Transition bud to match stem color
     if (growth > 0.25) {
-      const colorProgress = (growth - 0.25) / 0.05;
+      const colorProgress = (growth - 0.25) / 0.05; // 0 to 1 between growth 0.25 and 0.3
       const lightGreenColor = new THREE.Color('#b5e88a');
-      const stemGreenColor = new THREE.Color('#6ea557');
+      const stemGreenColor = new THREE.Color('#6ea557'); // Same as stem color
       bud.material.color.lerpColors(lightGreenColor, stemGreenColor, Math.min(1, colorProgress));
       bud.material.emissive = new THREE.Color('#000000');
       bud.material.emissiveIntensity = 0;
@@ -1887,7 +1706,9 @@ function updateDandelionDuringRain() {
     plant.add(bud);
   }
 
+  // Create only 2 leaves progressively as plant grows
   if (cachedLeaves.length === 0 && growth > 0.05) {
+    // Create 2 leaves positioned opposite each other
     const leafCount = 2;
     for (let i = 0; i < leafCount; i++) {
       const leaf = new THREE.Mesh(
@@ -1895,21 +1716,27 @@ function updateDandelionDuringRain() {
         dandelionSystem.leafMaterial.clone()
       );
 
-      const angle = i * Math.PI + Math.PI / 4;
-      const distance = 0.05;
+      // Position leaves to connect at stem base
+      const angle = i * Math.PI + Math.PI/4; // Offset 45 degrees for better visibility
+      const distance = 0.05; // Much closer to stem base
 
       leaf.position.set(
         Math.cos(angle) * distance,
-        0.02,
+        0.02, // Lower, closer to ground where stem starts
         Math.sin(angle) * distance
       );
 
+      // Rotate leaves to spread outward from stem
       leaf.rotation.y = angle;
-      leaf.rotation.z = 0.4 + (i * 0.15);
-      leaf.rotation.x = -0.3;
+      leaf.rotation.z = 0.4 + (i * 0.15); // More tilt to lay flatter
+      leaf.rotation.x = -0.3; // Angle down more
+
+      // Start at zero scale
       leaf.scale.setScalar(0);
       leaf.castShadow = true;
       leaf.receiveShadow = true;
+
+      // Store the order each leaf should appear
       leaf.userData.appearOrder = i;
 
       plant.add(leaf);
@@ -1917,24 +1744,35 @@ function updateDandelionDuringRain() {
     }
   }
 
+  // Gradually grow the 2 leaves based on growth progress
   for (let i = 0; i < cachedLeaves.length; i++) {
     const leaf = cachedLeaves[i];
+
+    // First leaf starts at 0.08, second at 0.20
     const leafStartGrowth = 0.08 + (i * 0.12);
 
     if (growth > leafStartGrowth) {
+      // Calculate this leaf's individual growth progress
       const leafGrowthProgress = Math.min(1, (growth - leafStartGrowth) / 0.25);
-      const baseScale = 0.6 + leafGrowthProgress * 0.5;
-      const sizeVariation = i === 0 ? 1.1 : 1.0;
+
+      // Scale based on individual leaf progress
+      const baseScale = 0.6 + leafGrowthProgress * 0.5; // Even larger leaves
+      const sizeVariation = i === 0 ? 1.1 : 1.0; // First leaf slightly bigger
+
       leaf.scale.setScalar(baseScale * sizeVariation * leafGrowthProgress);
     }
   }
 
+  // Add yellow flower petals around the stem-green bud center
   if (growth > 0.3) {
+    // Keep the stem-green bud as center
     if (bud) {
+      // Make sure bud matches stem color
       bud.material.color.set('#6ea557');
+      // Flatten the bud slightly to look more like flower center
       bud.scale.set(0.18, 0.08, 0.18);
       bud.position.y = stemHeight;
-      plant.add(bud);
+      plant.add(bud); // Re-add bud to keep it as center
     }
 
     if (!yellowFlower) {
@@ -1948,13 +1786,15 @@ function updateDandelionDuringRain() {
 }
 
 /* ==============================================
-   UPDATE GROWTH - SUN PHASE
-============================================== */
+   UPDATE GROWTH - SUN PHASE (YELLOW TO PUFF TRANSFORMATION)
+   ============================================== */
 function updateGrowth(dt) {
   if (!state.blooming) return;
 
-  growth = Math.min(1, growth + dt * 0.22);
+  // Continue growing from 0.7 to 1.0 during sun phase
+  growth = Math.min(1, growth + dt * 0.12);
 
+  // Clear previous growth stage BUT keep cached leaves
   const children = [...plant.children];
   for (const child of children) {
     if (!cachedLeaves.includes(child)) {
@@ -1962,6 +1802,7 @@ function updateGrowth(dt) {
     }
   }
 
+  // Create new stem at full height
   const stemHeight = 0.2 + 0.7 * 1.6;
   const newStem = new THREE.Mesh(
     dandelionSystem.createAdvancedStem(stemHeight),
@@ -1974,37 +1815,42 @@ function updateGrowth(dt) {
   newStem.castShadow = true;
   plant.add(newStem);
 
+  // Keep cached leaves at their full size
   for (const leaf of cachedLeaves) {
-    const fullScale = 0.6 + 0.5;
+    // Ensure leaves stay at full size
+    const fullScale = 0.6 + 0.5; // Full grown scale
     const sizeVariation = cachedLeaves.indexOf(leaf) === 0 ? 1.1 : 1.0;
     leaf.scale.setScalar(fullScale * sizeVariation);
 
     if (!leaf.parent) {
-      plant.add(leaf);
+      plant.add(leaf); // Re-add if removed
     }
   }
 
-  const transformProgress = (growth - 0.7) / 0.3;
+  // Transition from yellow flower to white puff
+  const transformProgress = (growth - 0.7) / 0.3; // 0 to 1 as growth goes from 0.7 to 1.0
 
-  if (bud && transformProgress < 0.5) {
-    bud.material.color.set('#6ea557');
-    bud.scale.set(0.18, 0.08, 0.18);
-    bud.position.y = stemHeight;
-    if (!bud.parent) {
-      plant.add(bud);
+  // Remove green bud completely during transformation
+  if (bud && transformProgress > 0 && transformProgress < 1) {
+    if (bud.parent && bud !== puff && bud !== yellowFlower) {
+      plant.remove(bud);
     }
   }
 
   if (transformProgress < 0.5) {
+    // First half: Yellow flower fading
     if (!yellowFlower) {
       yellowFlower = dandelionSystem.createYellowFlower();
     }
-    const fullStemHeight = 0.2 + 0.7 * 1.6;
+    // Keep flower at top of fully grown stem
+    const fullStemHeight = 0.2 + 0.7 * 1.6; // Match taller stem
     yellowFlower.position.y = fullStemHeight;
 
-    const fadeScale = 1 - (transformProgress * 2);
+    // Fade out yellow flower
+    const fadeScale = 1 - (transformProgress * 2); // 1 to 0 in first half
     yellowFlower.scale.setScalar(fadeScale);
 
+    // Make ONLY yellow flower petals fade (not the leaves!)
     yellowFlower.traverse((child) => {
       if (child.isMesh && child.material) {
         child.material.opacity = fadeScale;
@@ -2016,20 +1862,24 @@ function updateGrowth(dt) {
     bud = yellowFlower;
   }
 
-  if (transformProgress > 0.3) {
+  if (transformProgress > 0) {
+    // White puff emerging immediately
     if (!puff) {
       puff = dandelionSystem.createAdvancedPuffBall();
       puff.scale.setScalar(0.1);
     }
-    const fullStemHeight = 0.2 + 0.7 * 1.6;
+    // Keep puff at same height as flower was
+    const fullStemHeight = 0.2 + 0.7 * 1.6; // Match taller stem
     puff.position.y = fullStemHeight;
 
-    const puffScale = Math.min(0.8, (transformProgress - 0.3) * 1.14);
+    // Grow puff ball smoothly from the start
+    const puffScale = Math.min(0.8, transformProgress * 0.8); // 0 to 0.8
     puff.scale.setScalar(puffScale);
 
     plant.add(puff);
     bud = puff;
 
+    // Remove yellow flower if still there
     if (transformProgress > 0.5 && yellowFlower && yellowFlower.parent) {
       plant.remove(yellowFlower);
     }
@@ -2046,14 +1896,17 @@ function updateGrowth(dt) {
 
 /* ==============================================
    UPDATE SEEDS
-============================================== */
+   ============================================== */
 function updateSeeds(dt, elapsed) {
-  const gravity = 0.18, drag = 0.992, terminalFall = -0.25;
-  const moundBottom = 0.1;
+  const gravity = 0.18, drag = 0.992, terminalFall = -0.25; // Slower, floatier fall
+  // Calculate landing Y based on mound position and radius from center
+  const moundTop = activeMound.position.y + 0.45; // Top of mound
+  const moundBottom = 0.1; // Ground level
 
   for (const seed of seeds) {
     if (!seed.active) continue;
 
+    /* --- OUTBOUND ---*/
     if (seed.phase === 'outbound') {
       seed.phaseTimer += dt;
 
@@ -2076,6 +1929,7 @@ function updateSeeds(dt, elapsed) {
       continue;
     }
 
+    /* --- RETURNING ---*/
     if (seed.phase === 'returning') {
       seed.returnProgress = Math.min(1, seed.returnProgress + dt * 0.30);
       const t = seed.returnProgress;
@@ -2087,8 +1941,9 @@ function updateSeeds(dt, elapsed) {
         (seed.peakPos.z + activeMound.position.z) * 0.5 + 3
       );
 
+      // Target the top center of the mound
       const targetX = activeMound.position.x;
-      const targetY = activeMound.position.y + 0.45;
+      const targetY = activeMound.position.y + 0.45; // Top of mound
       const targetZ = activeMound.position.z;
 
       const omt = 1 - eased;
@@ -2113,13 +1968,14 @@ function updateSeeds(dt, elapsed) {
         seed.phase = 'normal';
         followedSeed = null;
         scene.remove(seed.mesh);
-        seeds.length = 0;
+        seeds.length = 0; // fully clear — next cycle starts fresh
 
         setTimeout(() => {
           seasonIndex = (seasonIndex + 1) % SEASONS.length;
           applySeasonTheme(seasonIndex);
           resetCycle(true);
 
+          // Create initial tiny sprout for the new cycle
           growth = 0.08;
           updateDandelionDuringRain();
 
@@ -2129,8 +1985,10 @@ function updateSeeds(dt, elapsed) {
       continue;
     }
 
+    /* --- NORMAL fall ---*/
     if (seed.landed) continue;
 
+    // More gentle swaying motion during fall
     seed.velocity.x += Math.sin(elapsed * 1.2 + seed.mesh.id * 0.17) * 0.12 * dt;
     seed.velocity.z += Math.cos(elapsed * 1.1 + seed.mesh.id * 0.13) * 0.12 * dt;
     seed.velocity.y -= gravity * dt;
@@ -2138,15 +1996,19 @@ function updateSeeds(dt, elapsed) {
     if (seed.velocity.y < terminalFall) seed.velocity.y = terminalFall;
     seed.mesh.position.addScaledVector(seed.velocity, dt);
 
+    // Calculate landing height based on distance from mound center
     const dx = seed.mesh.position.x - activeMound.position.x;
     const dz = seed.mesh.position.z - activeMound.position.z;
     const distFromCenter = Math.sqrt(dx * dx + dz * dz);
 
+    // Mound has radius of 1.9 at base, height of 0.9
     let landingY;
     if (distFromCenter < 1.9) {
+      // On the mound - calculate height based on cone shape
       const heightRatio = 1 - (distFromCenter / 1.9);
       landingY = moundBottom + (0.45 * heightRatio);
     } else {
+      // On flat ground
       landingY = moundBottom;
     }
 
@@ -2167,7 +2029,7 @@ function updateSeeds(dt, elapsed) {
 
 /* ==============================================
    HELPERS
-============================================== */
+   ============================================== */
 function averageCloudCenter(list) {
   const c = new THREE.Vector3();
   for (const cl of list) c.add(cl.position);
@@ -2183,17 +2045,15 @@ function cloudsReadyForRain() {
     const cdx = c.position.x - activeMound.position.x, cdz = c.position.z - activeMound.position.z;
     if (Math.sqrt(cdx * cdx + cdz * cdz) > overR + 1.2) return false;
   }
-  for (let i = 0; i < clouds.length; i++) {
-    for (let j = i + 1; j < clouds.length; j++) {
+  for (let i = 0; i < clouds.length; i++)
+    for (let j = i + 1; j < clouds.length; j++)
       if (clouds[i].position.distanceTo(clouds[j].position) > clusterD) return false;
-    }
-  }
   return true;
 }
 
 /* ==============================================
    CAMERA
-============================================== */
+   ============================================== */
 function updateCamera() {
   if (followedSeed && followedSeed.phase === 'outbound') {
     const p = followedSeed.mesh.position;
@@ -2220,7 +2080,7 @@ function updateCamera() {
 
 /* ==============================================
    RENDER LOOP
-============================================== */
+   ============================================== */
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.033);
