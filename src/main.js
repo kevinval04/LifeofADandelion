@@ -338,6 +338,7 @@ function applySeasonTheme(idx) {
       treeLeafMats[t].color.set(s.treeLeaf);
     }
   }
+  updateAudioForSeason(idx);
 }
 
 function updateSeasonalExtras(dt, elapsed) {
@@ -376,6 +377,347 @@ function updateSeasonalExtras(dt, elapsed) {
   }
 }
 
+
+
+/* -----------------------------
+   AUDIO SYSTEM
+------------------------------ */
+let audioCtx = null;
+let audioInitialized = false;
+let masterGainNode = null;
+let windGainNode = null;
+let windFilterNode = null;
+let rainGainNode = null;
+let birdTimer = null;
+
+// Ambient layer nodes
+let beeGainNode = null;
+let iceBellTimer = null;
+let iceBellGainNode = null;
+
+// Music sequencer state
+let musicSchedulerTimer = null;
+let musicMelodyIdx = 0;
+let musicBassIdx = 0;
+let musicNextTime = 0;
+let currentSeasonMusicIdx = -1;
+let musicMelodyGain = null;
+let musicBassGain = null;
+
+const NOTE = {
+  C3:130.81, D3:146.83, E3:164.81, F3:174.61, G3:196.00, A3:220.00, B3:246.94,
+  C4:261.63, D4:293.66, E4:329.63, F4:349.23, G4:392.00, A4:440.00, B4:493.88,
+  C5:523.25, D5:587.33, E5:659.25, G5:783.99, A5:880.00,
+};
+
+const SEASON_MUSIC = [
+  {
+    melodyNotes: [NOTE.E4, NOTE.G4, NOTE.A4, NOTE.G4, NOTE.E4, NOTE.C4, NOTE.D4, NOTE.E4],
+    melodyDurs:  [0.40,   0.40,   0.60,   0.40,   0.40,   0.80,   0.40,   0.80],
+    bassNotes:   [NOTE.C3, NOTE.G3, NOTE.F3, NOTE.G3],
+    bassDurs:    [1.00,    1.00,    1.00,    1.00],
+    melodyWave: 'sine', bassWave: 'sine',
+    melodyGain: 0.095, bassGain: 0.060,
+  },
+  {
+    melodyNotes: [NOTE.A4, NOTE.G4, NOTE.F4, NOTE.E4, NOTE.D4, NOTE.C4, NOTE.D4, NOTE.E4],
+    melodyDurs:  [0.50,   0.50,   0.50,   0.70,   0.50,   0.50,   0.50,   0.80],
+    bassNotes:   [NOTE.A3, NOTE.E3, NOTE.F3, NOTE.E3],
+    bassDurs:    [1.20,    1.20,    1.20,    1.20],
+    melodyWave: 'sine', bassWave: 'sine',
+    melodyGain: 0.085, bassGain: 0.055,
+  },
+  {
+    melodyNotes: [NOTE.D4, 0, NOTE.F4, 0, NOTE.A4, 0, NOTE.G4, NOTE.F4],
+    melodyDurs:  [0.80, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80, 0.80],
+    bassNotes:   [NOTE.D3, 0, NOTE.A3, 0],
+    bassDurs:    [2.00,  2.00, 2.00, 2.00],
+    melodyWave: 'sine', bassWave: 'sine',
+    melodyGain: 0.075, bassGain: 0.050,
+  },
+  {
+    melodyNotes: [NOTE.G4, NOTE.A4, NOTE.B4, NOTE.A4, NOTE.G4, NOTE.E4, NOTE.D4, NOTE.G4],
+    melodyDurs:  [0.30,   0.30,   0.45,   0.30,   0.30,   0.60,   0.30,   0.60],
+    bassNotes:   [NOTE.G3, NOTE.D3, NOTE.C3, NOTE.D3],
+    bassDurs:    [0.90,    0.90,    0.90,    0.90],
+    melodyWave: 'sine', bassWave: 'sine',
+    melodyGain: 0.090, bassGain: 0.058,
+  },
+];
+
+function initAudio() {
+  if (audioInitialized) return;
+  audioInitialized = true;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  masterGainNode = audioCtx.createGain();
+  masterGainNode.gain.value = 0.28;
+  masterGainNode.connect(audioCtx.destination);
+
+  function makeNoiseBuf(sec = 3) {
+    const buf = audioCtx.createBuffer(2, Math.ceil(audioCtx.sampleRate * sec), audioCtx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      let last = 0;
+      for (let i = 0; i < d.length; i++) {
+        last = (last + (Math.random() * 2 - 1) * 0.08) * 0.98;
+        d[i] = last * 12;
+      }
+    }
+    return buf;
+  }
+
+  function makeWhiteNoiseBuf(sec = 2) {
+    const buf = audioCtx.createBuffer(2, Math.ceil(audioCtx.sampleRate * sec), audioCtx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return buf;
+  }
+
+  const windSrc = audioCtx.createBufferSource();
+  windSrc.buffer = makeNoiseBuf(4);
+  windSrc.loop = true;
+
+  windFilterNode = audioCtx.createBiquadFilter();
+  windFilterNode.type = 'bandpass';
+  windFilterNode.frequency.value = 380;
+  windFilterNode.Q.value = 0.85;
+
+  const lfo = audioCtx.createOscillator();
+  lfo.frequency.value = 0.07;
+  const lfoAmt = audioCtx.createGain();
+  lfoAmt.gain.value = 70;
+  lfo.connect(lfoAmt);
+  lfoAmt.connect(windFilterNode.frequency);
+  lfo.start();
+
+  windGainNode = audioCtx.createGain();
+  windGainNode.gain.value = 0.005;
+  windSrc.connect(windFilterNode);
+  windFilterNode.connect(windGainNode);
+  windGainNode.connect(masterGainNode);
+  windSrc.start();
+
+  const rainSrc = audioCtx.createBufferSource();
+  rainSrc.buffer = makeWhiteNoiseBuf(2);
+  rainSrc.loop = true;
+
+  const rainHp = audioCtx.createBiquadFilter();
+  rainHp.type = 'highpass';
+  rainHp.frequency.value = 1000;
+  const rainLp = audioCtx.createBiquadFilter();
+  rainLp.type = 'lowpass';
+  rainLp.frequency.value = 7500;
+
+  rainGainNode = audioCtx.createGain();
+  rainGainNode.gain.value = 0;
+  rainSrc.connect(rainHp);
+  rainHp.connect(rainLp);
+  rainLp.connect(rainGainNode);
+  rainGainNode.connect(masterGainNode);
+  rainSrc.start();
+
+  {
+    const beeOsc = audioCtx.createOscillator();
+    beeOsc.type = 'sawtooth';
+    beeOsc.frequency.value = 220;
+    const beeLp = audioCtx.createBiquadFilter();
+    beeLp.type = 'lowpass';
+    beeLp.frequency.value = 600;
+    const beeLfo = audioCtx.createOscillator();
+    beeLfo.frequency.value = 7;
+    const beeLfoGain = audioCtx.createGain();
+    beeLfoGain.gain.value = 18;
+    beeLfo.connect(beeLfoGain);
+    beeLfoGain.connect(beeOsc.detune);
+    beeOsc.connect(beeLp);
+    beeGainNode = audioCtx.createGain();
+    beeGainNode.gain.value = 0;
+    beeLp.connect(beeGainNode);
+    beeGainNode.connect(masterGainNode);
+    beeOsc.start();
+    beeLfo.start();
+  }
+
+  iceBellGainNode = audioCtx.createGain();
+  iceBellGainNode.gain.value = 1.0;
+  iceBellGainNode.connect(masterGainNode);
+
+  musicMelodyGain = audioCtx.createGain();
+  musicMelodyGain.gain.value = 0;
+  musicMelodyGain.connect(masterGainNode);
+  musicBassGain = audioCtx.createGain();
+  musicBassGain.gain.value = 0;
+  musicBassGain.connect(masterGainNode);
+
+  const muteBtn = document.createElement('button');
+  muteBtn.textContent = '🔊';
+  muteBtn.title = 'Toggle sound';
+  muteBtn.style.cssText = `
+    position: fixed; top: 14px; right: 14px;
+    background: rgba(0,0,0,0.35); border: none; border-radius: 50%;
+    width: 38px; height: 38px; font-size: 17px; cursor: pointer;
+    backdrop-filter: blur(6px); color: #fff; line-height: 38px; text-align: center;
+    z-index: 100;
+  `;
+  muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (audioCtx.state === 'running') {
+      audioCtx.suspend();
+      muteBtn.textContent = '🔇';
+    } else {
+      audioCtx.resume();
+      muteBtn.textContent = '🔊';
+    }
+  });
+  document.body.appendChild(muteBtn);
+
+  updateAudioForSeason(seasonIndex);
+}
+
+function playMusicNote(freq, time, dur, wave, gainNode, peakGain, attack = 0.04, decay = 0.18) {
+  if (!freq || freq === 0) return;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = wave;
+  osc.frequency.value = freq;
+  env.gain.setValueAtTime(0, time);
+  env.gain.linearRampToValueAtTime(peakGain, time + attack);
+  env.gain.setTargetAtTime(0, time + attack, decay);
+  osc.connect(env);
+  env.connect(gainNode);
+  osc.start(time);
+  osc.stop(time + dur + 0.3);
+}
+
+function runMusicScheduler() {
+  if (!audioCtx || currentSeasonMusicIdx < 0) return;
+  const LOOKAHEAD = 0.15;
+  const sm = SEASON_MUSIC[currentSeasonMusicIdx];
+  const now = audioCtx.currentTime;
+
+  while (musicNextTime < now + LOOKAHEAD) {
+    const mFreq = sm.melodyNotes[musicMelodyIdx % sm.melodyNotes.length];
+    const mDur  = sm.melodyDurs[musicMelodyIdx % sm.melodyDurs.length];
+    playMusicNote(mFreq, musicNextTime, mDur, sm.melodyWave, musicMelodyGain, sm.melodyGain);
+    musicMelodyIdx++;
+
+    const bFreq = sm.bassNotes[musicBassIdx % sm.bassNotes.length];
+    const bDur  = sm.bassDurs[musicBassIdx % sm.bassDurs.length];
+    if (musicBassIdx === 0 || musicNextTime >= _musicBassNextTime) {
+      playMusicNote(bFreq, musicNextTime, bDur, sm.bassWave, musicBassGain, sm.bassGain, 0.06, 0.28);
+      _musicBassNextTime = musicNextTime + bDur;
+      musicBassIdx++;
+    }
+
+    musicNextTime += mDur;
+  }
+}
+let _musicBassNextTime = 0;
+
+function startSeasonMusic(idx) {
+  if (!audioCtx) return;
+  if (musicSchedulerTimer) { clearInterval(musicSchedulerTimer); musicSchedulerTimer = null; }
+  if (musicMelodyGain) musicMelodyGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+  if (musicBassGain)   musicBassGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+
+  currentSeasonMusicIdx = idx;
+  musicMelodyIdx = 0;
+  musicBassIdx = 0;
+  _musicBassNextTime = 0;
+  musicNextTime = audioCtx.currentTime + 0.6;
+
+  setTimeout(() => {
+    if (!audioCtx) return;
+    musicMelodyGain.gain.setTargetAtTime(1.35, audioCtx.currentTime, 0.6);
+    musicBassGain.gain.setTargetAtTime(1.10, audioCtx.currentTime, 0.6);
+    musicSchedulerTimer = setInterval(runMusicScheduler, 80);
+  }, 700);
+}
+
+function scheduleNextIceBell() {
+  if (!audioCtx || currentSeasonMusicIdx !== 2) return;
+  const bellFreqs = [587.33, 698.46, 880.00, 523.25, 659.25, 1046.50, 783.99];
+  const freq = bellFreqs[Math.floor(Math.random() * bellFreqs.length)];
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(0.07, t + 0.01);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
+  osc.connect(env);
+  env.connect(iceBellGainNode);
+  osc.start(t);
+  osc.stop(t + 2.5);
+  iceBellTimer = setTimeout(scheduleNextIceBell, 2000 + Math.random() * 4000);
+}
+
+function updateAudioForSeason(idx) {
+  if (!audioInitialized || !audioCtx) return;
+  const t = audioCtx.currentTime;
+
+  const windSettings = [
+    { freq: 420, gain: 0.010 },
+    { freq: 255, gain: 0.035 },
+    { freq: 175, gain: 0.040 },
+    { freq: 530, gain: 0.025 },
+  ];
+  const w = windSettings[idx];
+  windFilterNode.frequency.setTargetAtTime(w.freq, t, 0.7);
+  windGainNode.gain.setTargetAtTime(w.gain, t, 0.7);
+
+  if (birdTimer) { clearInterval(birdTimer); birdTimer = null; }
+  if (idx === 0 || idx === 3) {
+    const baseInterval = idx === 3 ? 2200 : 4500;
+    birdTimer = setInterval(() => {
+      if (audioInitialized && audioCtx && audioCtx.state === 'running') {
+        scheduleChirp(idx === 3);
+      }
+    }, baseInterval + Math.random() * 2000);
+  }
+
+  beeGainNode.gain.setTargetAtTime(idx === 3 ? 0.030 : 0, t, 1.2);
+
+  if (iceBellTimer) { clearTimeout(iceBellTimer); iceBellTimer = null; }
+  if (idx === 2) {
+    iceBellTimer = setTimeout(scheduleNextIceBell, 1500 + Math.random() * 3000);
+  }
+
+  startSeasonMusic(idx);
+}
+
+function scheduleChirp(isSpring) {
+  if (!audioCtx || !masterGainNode) return;
+  const t = audioCtx.currentTime;
+  const count = isSpring ? 2 + Math.floor(Math.random() * 3) : 1 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < count; i++) {
+    const delay = i * (0.10 + Math.random() * 0.13);
+    const base = 1500 + Math.random() * 1000;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(base, t + delay);
+    osc.frequency.exponentialRampToValueAtTime(base * 1.38, t + delay + 0.07);
+    osc.frequency.exponentialRampToValueAtTime(base * 1.05, t + delay + 0.14);
+    env.gain.setValueAtTime(0, t + delay);
+    env.gain.linearRampToValueAtTime(0.055, t + delay + 0.025);
+    env.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.18);
+    osc.connect(env);
+    env.connect(masterGainNode);
+    osc.start(t + delay);
+    osc.stop(t + delay + 0.22);
+  }
+}
+
+function setRainSound(active) {
+  if (!audioInitialized || !audioCtx) return;
+  rainGainNode.gain.setTargetAtTime(active ? 0.20 : 0, audioCtx.currentTime, 0.9);
+}
 //background trees
 
 function createBlockyTree(x, z, scale) {
@@ -1190,6 +1532,7 @@ function deselectSeed() {
 
 // input
 window.addEventListener("pointerdown", (event) => {
+  initAudio();
   toNdc(event);
   raycaster.setFromCamera(pointer, camera);
 
