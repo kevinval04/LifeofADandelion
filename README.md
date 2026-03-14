@@ -7,9 +7,9 @@ An interactive 3D simulation showcasing the life cycle of a dandelion, built wit
 - **Interactive Growth Stages**: Watch a dandelion grow from seed to full bloom
 - **Environmental Effects**:
   - Dynamic wind simulation affecting dandelion seeds
-  - Animated bees with realistic flight patterns
   - Cloud formations with collision detection
   - Seasonal color changes
+  - Animated bees with realistic flight patterns
 - **Advanced Graphics**:
   - Dynamic shadowing from the sun throughout the growth process
   - Beautifully rendered 3D scene with real-time shadows
@@ -95,7 +95,6 @@ Instructions are displayed in the top right corner of the screen during gameplay
 - **Click on Sun**: Interact with the sun
 - **Drag Clouds**: Click and drag to move clouds across the sky
 - **Mouse Movement**: Control wind direction and strength for seed dispersal
-- **Wait**: Watch the natural growth progression
 
 ## Acknowledgments
 **Project Team**: Kaya Lash, Kentaro Lawrence, Kevin Valencia
